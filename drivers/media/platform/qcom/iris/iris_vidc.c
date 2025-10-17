@@ -454,9 +454,9 @@ static int iris_querycap(struct file *filp, void *fh, struct v4l2_capability *ca
 	strscpy(cap->driver, IRIS_DRV_NAME, sizeof(cap->driver));
 
 	if (inst->domain == DECODER)
-		strscpy(cap->card, "Iris Decoder", sizeof(cap->card));
+		strscpy(cap->card, "iris_decoder", sizeof(cap->card));
 	else
-		strscpy(cap->card, "Iris Encoder", sizeof(cap->card));
+		strscpy(cap->card, "iris_encoder", sizeof(cap->card));
 
 	return 0;
 }
