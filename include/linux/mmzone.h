@@ -1455,6 +1455,39 @@ struct memory_failure_stats {
 #endif
 
 /*
+ * Per-pgdat state machine for the kswapd "opportunistic compaction" hint.
+ *
+ * wakeup_kswapd() collapses the gfp flags of all wakers that arrive between
+ * two kswapd runs into a single tri-state, which kswapd then forwards to the
+ * shrinkers via shrink_control::opportunistic_compaction:
+ *
+ *   KSWAPD_UNSET_OPPORTUNISTIC_COMPACTION
+ *	Initial state after kswapd consumes the previous value. No waker has
+ *	been observed yet for the upcoming run.
+ *
+ *   KSWAPD_NO_OPPORTUNISTIC_COMPACTION
+ *	At least one waker is an order-0 allocation, or a high-order
+ *	allocation that cannot tolerate failure (i.e., not eligible for
+ *	opportunistic behaviour). Shrinkers must do their normal best-effort
+ *	work; the hint is cleared.
+ *
+ *   KSWAPD_OPPORTUNISTIC_COMPACTION
+ *	All wakers seen so far are high-order allocations that may fail
+ *	(__GFP_NORETRY or __GFP_RETRY_MAYFAIL, without __GFP_NOFAIL). Shrinkers
+ *	may skip work that is unlikely to produce a contiguous high-order
+ *	block (e.g., evicting working-set pages).
+ *
+ * The state is sticky in the "NO" direction within a single kswapd run: once
+ * any non-eligible waker is observed, subsequent eligible wakers cannot
+ * upgrade it back to KSWAPD_OPPORTUNISTIC_COMPACTION.
+ */
+enum kswapd_opportunistic_compaction_type {
+	KSWAPD_UNSET_OPPORTUNISTIC_COMPACTION = 0,
+	KSWAPD_NO_OPPORTUNISTIC_COMPACTION,
+	KSWAPD_OPPORTUNISTIC_COMPACTION,
+};
+
+/*
  * On NUMA machines, each NUMA node would have a pg_data_t to describe
  * it's memory layout. On UMA machines there is a single pglist_data which
  * describes the whole memory.
@@ -1518,6 +1551,13 @@ typedef struct pglist_data {
 #endif
 	struct task_struct *kswapd;	/* Protected by kswapd_lock */
 	int kswapd_order;
+	/*
+	 * Aggregated opportunistic-compaction hint for the next kswapd run.
+	 * Updated by wakeup_kswapd() based on the gfp flags / order of each
+	 * waker, and consumed (and reset) by kswapd before balance_pgdat().
+	 * See enum kswapd_opportunistic_compaction_type for the state machine.
+	 */
+	atomic_t kswapd_opportunistic_compaction;
 	enum zone_type kswapd_highest_zoneidx;
 
 	atomic_t kswapd_failures;	/* Number of 'reclaimed == 0' runs */

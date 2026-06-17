@@ -38,6 +38,26 @@ struct shrink_control {
 	int nid;
 
 	/*
+	 * Opportunistic compaction hint.
+	 *
+	 * Set by the reclaim path to tell shrinkers that this pass is
+	 * driven by an order > 0 allocation that the caller is willing to
+	 * have fail (e.g., __GFP_NORETRY / __GFP_RETRY_MAYFAIL without
+	 * __GFP_NOFAIL). Such allocations only really benefit from
+	 * shrinking when doing so frees up a contiguous, high-order block;
+	 * thrashing working sets in the hope of producing one is typically
+	 * counter-productive.
+	 *
+	 * Shrinkers that can produce naturally-aligned high-order folios
+	 * (see shrink_control::order) should treat this as a hint to skip
+	 * costly work that is unlikely to help compaction (for example,
+	 * evicting hot/working-set pages just to free single pages).
+	 *
+	 * Only meaningful when @order > 0; ignored otherwise.
+	 */
+	bool opportunistic_compaction;
+
+	/*
 	 * How many objects scan_objects should scan and try to reclaim.
 	 * This is reset before every call, so it is safe for callees
 	 * to modify.
