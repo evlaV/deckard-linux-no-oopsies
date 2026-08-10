@@ -409,6 +409,27 @@ alternative_else_nop_endif
 
 	msr	elr_el1, x21			// set up the return data
 	msr	spsr_el1, x22
+
+	/*
+	 * Save the CPU number into tpidrro_el0 before returning to EL0:
+	 *
+	 * For native tasks, we stash the running CPU of the task in the
+	 * tpidrro_el0 register; at this moment, tsk is valid and we're
+	 * almost ready to get back to EL0. For the 32-bit compat tasks,
+	 * tpidrro_el0 carries the TLS pointer and must survive every kernel
+	 * exit intact - so we test TIF_32BIT and skip the write accordingly.
+	 *
+	 * This is NOT UPSTREAM, see the commit message for details.
+	 */
+
+	.if	\el == 0
+	ldr	w0, [tsk, #TSK_TI_FLAGS]
+	tbnz	w0, #TIF_32BIT, .Lskip_tpidrro_\@
+	ldr	w0, [tsk, #TSK_TI_CPU]
+	msr	tpidrro_el0, x0
+.Lskip_tpidrro_\@:
+	.endif
+
 	ldp	x0, x1, [sp, #16 * 0]
 	ldp	x2, x3, [sp, #16 * 1]
 	ldp	x4, x5, [sp, #16 * 2]

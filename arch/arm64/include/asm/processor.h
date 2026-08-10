@@ -432,6 +432,9 @@ extern void __init minsigstksz_setup(void);
 	ptrauth_set_enabled_keys(tsk, keys, enabled)
 #define PAC_GET_ENABLED_KEYS(tsk) ptrauth_get_enabled_keys(tsk)
 
+/* NOT UPSTREAM, see the comment at include/uapi/linux/prctl.h for details. */
+#define GET_TPIDRRO_CPU()	1
+
 #ifdef CONFIG_ARM64_TAGGED_ADDR_ABI
 /* PR_{SET,GET}_TAGGED_ADDR_CTRL prctl */
 long set_tagged_addr_ctrl(struct task_struct *task, unsigned long arg);

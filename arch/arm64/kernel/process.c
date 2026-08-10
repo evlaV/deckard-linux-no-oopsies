@@ -533,8 +533,14 @@ static void tls_thread_switch(struct task_struct *next)
 
 	if (is_compat_thread(task_thread_info(next)))
 		write_sysreg(next->thread.uw.tp_value, tpidrro_el0);
-	else
-		write_sysreg(0, tpidrro_el0);
+
+	/*
+	 * About the native/64-bit case: notice we don't need to update
+	 * tpidrro_el0 here, since it is refreshed at every EL1->EL0
+	 * transition at kernel exit.
+	 *
+	 * This is NOT UPSTREAM, see the commit message for details.
+	 */
 
 	write_sysreg(*task_user_tls(next), tpidr_el0);
 	if (system_supports_tpidr2())

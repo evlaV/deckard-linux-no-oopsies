@@ -143,6 +143,10 @@
 #ifndef GET_TAGGED_ADDR_CTRL
 # define GET_TAGGED_ADDR_CTRL()		(-EINVAL)
 #endif
+#ifndef GET_TPIDRRO_CPU
+/* NOT UPSTREAM - see the comment at include/uapi/linux/prctl.h for details. */
+# define GET_TPIDRRO_CPU()	(-EINVAL)
+#endif
 #ifndef RISCV_V_SET_CONTROL
 # define RISCV_V_SET_CONTROL(a)		(-EINVAL)
 #endif
@@ -2882,6 +2886,12 @@ SYSCALL_DEFINE5(prctl, int, option, unsigned long, arg2, unsigned long, arg3,
 		if (arg3 || arg4 || arg5)
 			return -EINVAL;
 		error = posixtimer_create_prctl(arg2);
+		break;
+	case PR_GET_TPIDRRO_CPU:
+		/* NOT UPSTREAM, see the comment at include/uapi/linux/prctl.h for details. */
+		if (arg2 || arg3 || arg4 || arg5)
+			return -EINVAL;
+		error = GET_TPIDRRO_CPU();
 		break;
 	case PR_FUTEX_HASH:
 		error = futex_hash_prctl(arg2, arg3, arg4);

@@ -371,6 +371,18 @@ struct prctl_mm_map {
 #define PR_LOCK_SHADOW_STACK_STATUS      76
 
 /*
+ * ARM64-only prctl(): checks if TPIDRRO holds the task's running CPU
+ * number. If not, the register always holds 0 (so basically it is not
+ * distinguishable from CPU 0 running the process, hence the prctl is
+ * required for that).
+ *
+ * This is currently NOT UPSTREAM, tested on v7.3.0, 7.2.y and 6.18.y.
+ * So, the high number of such prctl() is to avoid porting conflicts
+ * with newly added ones.
+ */
+#define PR_GET_TPIDRRO_CPU	0x7F1DBB0
+
+/*
  * Controls the mode of timer_create() for CRIU restore operations.
  * Enabling this allows CRIU to restore timers with explicit IDs.
  *
