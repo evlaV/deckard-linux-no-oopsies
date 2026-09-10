@@ -189,6 +189,9 @@ static void dpu_encoder_phys_wb_setup_fb(struct dpu_encoder_phys *phys_enc,
 
 	wb_cfg->intf_mode = phys_enc->intf_mode;
 
+	if (phys_enc->dpu_kms->is_dsi_driven_writeback)
+		cdp_usage = DPU_PERF_CDP_USAGE_RT;
+
 	if( phys_enc->split_role == ENC_ROLE_SLAVE)
 		wb_cfg->roi.x1 = phys_enc->cached_mode.hdisplay / 2;
 	else
@@ -233,6 +236,7 @@ static void dpu_encoder_phys_wb_setup_ctl(struct dpu_encoder_phys *phys_enc)
 {
 	struct dpu_hw_wb *hw_wb;
 	struct dpu_hw_cdm *hw_cdm;
+	enum dpu_pingpong pp_idx;
 
 	if (!phys_enc) {
 		DPU_ERROR("invalid encoder\n");
@@ -264,9 +268,22 @@ static void dpu_encoder_phys_wb_setup_ctl(struct dpu_encoder_phys *phys_enc)
 		if (hw_pp && hw_pp->merge_3d && hw_pp->merge_3d->ops.setup_3d_mode)
 			hw_pp->merge_3d->ops.setup_3d_mode(hw_pp->merge_3d, mode_3d);
 
+		if (phys_enc->dpu_kms->is_dsi_driven_writeback) {
+			if (phys_enc->hw_wb->idx == WB_1)
+				pp_idx = PINGPONG_CWB_0;
+			else
+				pp_idx = PINGPONG_CWB_2;
+		} else {
+				pp_idx = phys_enc->hw_pp->idx;
+		}
 		/* setup which pp blk will connect to this wb */
 		if (hw_pp && hw_wb->ops.bind_pingpong_blk)
-			hw_wb->ops.bind_pingpong_blk(hw_wb, hw_pp->idx);
+			hw_wb->ops.bind_pingpong_blk(hw_wb, pp_idx);
+
+		if (phys_enc->dpu_kms->is_dsi_driven_writeback) {
+			DPU_DEBUG("WB skip setup ctl");
+			return;
+		}
 
 		phys_enc->hw_ctl->ops.setup_intf_cfg(phys_enc->hw_ctl, &intf_cfg);
 	} else if (phys_enc->hw_ctl && phys_enc->hw_ctl->ops.setup_intf_cfg) {
@@ -292,6 +309,11 @@ static void _dpu_encoder_phys_wb_update_flush(struct dpu_encoder_phys *phys_enc)
 	struct dpu_hw_cdm *hw_cdm;
 	u32 pending_flush = 0;
 	u32 mode_3d;
+
+	if (phys_enc->dpu_kms->is_dsi_driven_writeback) {
+		DPU_DEBUG("WB skip update flush");
+		return;
+	}
 
 	if (!phys_enc)
 		return;
@@ -388,7 +410,9 @@ static void dpu_encoder_phys_wb_done_irq(void *arg)
 	 * For writeback with dual HW WB, only master WB is needed to handle
 	 * high level task.
 	 */
+
 	if (wb_enc->wb_conn &&
+	    (phys_enc->dpu_kms->is_dsi_driven_writeback ? !list_empty(phys_enc->dpu_kms->wb_job_queue) : 1) &&
 	    phys_enc->split_role != ENC_ROLE_SLAVE)
 		drm_writeback_signal_completion(wb_enc->wb_conn, 0);
 
@@ -474,7 +498,7 @@ static int dpu_encoder_phys_wb_wait_for_commit_done(
 
 	wait_info.wq = &phys_enc->pending_kickoff_wq;
 	wait_info.atomic_cnt = &phys_enc->pending_kickoff_cnt;
-	wait_info.timeout_ms = KICKOFF_TIMEOUT_MS;
+	wait_info.timeout_ms = 1000;
 
 	ret = dpu_encoder_helper_wait_for_irq(phys_enc,
 			phys_enc->irq[INTR_IDX_WB_DONE],
@@ -652,6 +676,10 @@ static void dpu_encoder_phys_wb_cleanup_wb_job(struct dpu_encoder_phys *phys_enc
 		return;
 
 	msm_framebuffer_cleanup(job->fb, false);
+
+	if (phys_enc->dpu_kms->is_dsi_driven_writeback)
+		return;
+
 	wb_enc->wb_job = NULL;
 	wb_enc->wb_conn = NULL;
 }

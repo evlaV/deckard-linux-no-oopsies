@@ -126,6 +126,8 @@ int dpu_writeback_init(struct drm_device *dev, struct drm_encoder *enc,
 		const u32 *format_list, u32 num_formats, u32 maxlinewidth)
 {
 	struct dpu_wb_connector *dpu_wb_conn;
+	struct msm_drm_private *priv = dev->dev_private;
+	struct dpu_kms *dpu_kms = to_dpu_kms(priv->kms);
 	int rc = 0;
 
 	dpu_wb_conn = drmm_kzalloc(dev, sizeof(*dpu_wb_conn), GFP_KERNEL);
@@ -142,6 +144,8 @@ int dpu_writeback_init(struct drm_device *dev, struct drm_encoder *enc,
 
 	if (!rc)
 		dpu_wb_conn->wb_enc = enc;
+
+	dpu_kms->wb_job_queue = &dpu_wb_conn->base.job_queue;
 
 	return rc;
 }

@@ -240,6 +240,22 @@ struct dpu_hw_ctl_ops {
 		struct dpu_hw_intf_cfg *cfg);
 
 	/**
+	 * Hack CWB and WB config in DSI encoder
+	 * @ctx
+	 * @cwb bits mask for cwb_active register
+	 * @wb index for wb_active register
+	 */
+	void (*hack_cwb)(struct dpu_hw_ctl *ctx,
+		void __iomem *mmio,
+		u32 cwb_active, u32 wb_active);
+
+	/**
+	 * Clear CWB and WB config in DSI encoder
+	 * @ctx
+	 */
+	void (*clear_cwb)(struct dpu_hw_ctl *ctx);
+
+	/**
 	 * @reset_intf_cfg: reset ctl_path interface config
 	 * @ctx    : ctl path ctx pointer
 	 * @cfg    : interface config structure pointer

@@ -1071,6 +1071,15 @@ static void dpu_crtc_atomic_begin(struct drm_crtc *crtc,
 
 	DRM_DEBUG_ATOMIC("crtc%d\n", crtc->base.id);
 
+	if (dpu_kms->is_dsi_driven_writeback) {
+		drm_for_each_encoder_mask(encoder, crtc->dev, crtc->state->encoder_mask)
+		{
+			if (encoder->encoder_type == DRM_MODE_ENCODER_VIRTUAL) {
+				DRM_DEBUG_ATOMIC("crtc%d skip layer blending for wb\n", crtc->base.id);
+				return;
+			}
+		}
+	}
 	_dpu_crtc_check_and_setup_lm_bounds(crtc, crtc->state);
 
 	/* encoder will trigger pending mask now */

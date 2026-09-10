@@ -337,6 +337,7 @@ static int dpu_kms_debugfs_init(struct msm_kms *kms, struct drm_minor *minor)
 	debugfs_create_file("cac_blob", 0600, entry, dpu_kms, &cac_blob_fops);
 	debugfs_create_bool("cac_update", 0600, entry, &dpu_kms->cac_update_pending);
 	debugfs_create_bool("skip_cwb_right", 0600, entry, &dpu_kms->skip_cwb_right);
+	debugfs_create_bool("is_dsi_driven_writeback", 0600, entry, &dpu_kms->is_dsi_driven_writeback);
 
 	dpu_debugfs_danger_init(dpu_kms, entry);
 	dpu_debugfs_vbif_init(dpu_kms, entry);
@@ -1394,6 +1395,7 @@ static int dpu_kms_init(struct drm_device *ddev)
 	dpu_kms->cac_state_cur = CAC_DISABLED;
 	dpu_kms->cac_state_cached = CAC_DISABLED;
 	dpu_kms->skip_cwb_right = true;
+	dpu_kms->is_dsi_driven_writeback = true;
 	dpu_kms->cac_update_pending = false;
 	dpu_kms->cac_update_wip = false;
 

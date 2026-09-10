@@ -119,6 +119,8 @@ struct dpu_kms {
 	u32 cac_blob_id;
 	/* skip right half of framebuffer in quad-pipe writeback case */
 	bool skip_cwb_right;
+	bool is_dsi_driven_writeback;	/* trigger cwb via DSI commit */
+	struct list_head *wb_job_queue;
 
 	/* reference count bandwidth requests, so we know when we can
 	 * release bandwidth.  Each atomic update increments, and frame-

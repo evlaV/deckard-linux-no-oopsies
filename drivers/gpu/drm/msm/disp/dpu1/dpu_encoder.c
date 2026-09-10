@@ -1938,8 +1938,47 @@ static void _dpu_encoder_kickoff_phys(struct dpu_encoder_virt *dpu_enc)
 	struct dpu_hw_ctl *ctl;
 	uint32_t i, pending_flush;
 	unsigned long lock_flags;
+	struct msm_drm_private *priv;
+	struct dpu_kms *dpu_kms;
+	priv = dpu_enc->base.dev->dev_private;
+	dpu_kms = to_dpu_kms(priv->kms);
 
 	pending_flush = 0x0;
+
+#define WB_IDX          16
+#define CDM_IDX         26
+#define CWB_IDX         28
+	/* hack CWB related ctl config in DSI path for 2nd dedicated CWB crtc case */
+	if (dpu_kms->is_dsi_driven_writeback &&
+	    dpu_enc->base.encoder_type != DRM_MODE_ENCODER_VIRTUAL) {
+		struct dpu_encoder_phys *phys = dpu_enc->phys_encs[1];
+		ctl = phys->hw_ctl;
+		if (!list_empty(dpu_kms->wb_job_queue)) {
+			DPU_DEBUG_ENC(dpu_enc, "Add hacked CWB flush for dedicated 2nd pipe\n");
+			ctl->pending_wb_flush_mask |= BIT(WB_1 - WB_0);
+
+			if(!dpu_kms->skip_cwb_right)
+				ctl->pending_wb_flush_mask |= BIT(WB_2 - WB_0);
+
+			if(!dpu_kms->skip_cwb_right)
+				ctl->pending_wb_flush_mask |= 0xf;
+			else
+				ctl->pending_cwb_flush_mask = 0x3;
+
+			ctl->pending_flush_mask |= BIT(CWB_IDX) | BIT(WB_IDX);
+			//ctl->pending_cdm_flush_mask = BIT(0);
+		} else {
+			DPU_DEBUG_ENC(dpu_enc, "clear hacked CWB flush\n");
+			ctl->pending_cdm_flush_mask = 0;
+			ctl->pending_wb_flush_mask = 0;
+			ctl->pending_cwb_flush_mask = 0;
+			ctl->pending_flush_mask &= ~(BIT(CWB_IDX) | BIT(WB_IDX));
+		}
+	}
+
+	if (dpu_enc->base.encoder_type == DRM_MODE_ENCODER_VIRTUAL &&
+	    dpu_kms->is_dsi_driven_writeback)
+		return;
 
 	/* update pending counts and trigger kickoff ctl flush atomically */
 	spin_lock_irqsave(&dpu_enc->enc_spinlock, lock_flags);
@@ -2221,6 +2260,8 @@ void dpu_encoder_prepare_for_kickoff(struct drm_encoder *drm_enc)
 {
 	struct dpu_encoder_virt *dpu_enc;
 	struct dpu_encoder_phys *phys;
+	struct dpu_hw_ctl *ctl;
+	struct dpu_kms *dpu_kms;
 	bool needs_hw_reset = false;
 	unsigned int i;
 
@@ -2232,12 +2273,34 @@ void dpu_encoder_prepare_for_kickoff(struct drm_encoder *drm_enc)
 	DPU_ATRACE_BEGIN("enc_prepare_for_kickoff");
 	for (i = 0; i < dpu_enc->num_phys_encs; i++) {
 		phys = dpu_enc->phys_encs[i];
+		ctl = phys->hw_ctl;
+		dpu_kms = phys->dpu_kms;
+		if (dpu_kms->is_dsi_driven_writeback &&
+		    drm_enc->encoder_type != DRM_MODE_ENCODER_VIRTUAL) {
+			if(!list_empty(dpu_kms->wb_job_queue)) {
+				DPU_DEBUG("job found in wb queue, enable CWB\n");
+				/* hard code WB_1 for master DSI and WB_2 for slave DSI on sm8650 */
+				if (phys->split_role != ENC_ROLE_SLAVE)
+					ctl->ops.hack_cwb(ctl, dpu_kms->mmio, 0x3, WB_1);
+				else if(!dpu_kms->skip_cwb_right)
+					ctl->ops.hack_cwb(ctl, dpu_kms->mmio, 0xc, WB_2);
+			} else {
+				DPU_DEBUG("wb queue is empty, disable CWB\n");
+				ctl->ops.clear_cwb(ctl);
+			}
+		}
+
 		if (phys->ops.prepare_for_kickoff)
 			phys->ops.prepare_for_kickoff(phys);
 		if (phys->enable_state == DPU_ENC_ERR_NEEDS_HW_RESET)
 			needs_hw_reset = true;
 	}
 	DPU_ATRACE_END("enc_prepare_for_kickoff");
+
+	/* ctl programming is not needed in hacked cwb mode */
+	if (dpu_kms->is_dsi_driven_writeback &&
+	    drm_enc->encoder_type == DRM_MODE_ENCODER_VIRTUAL)
+		return;
 
 	dpu_encoder_resource_control(drm_enc, DPU_ENC_RC_EVENT_KICKOFF);
 

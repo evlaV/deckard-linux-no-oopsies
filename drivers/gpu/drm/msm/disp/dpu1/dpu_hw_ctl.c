@@ -630,6 +630,62 @@ static void dpu_hw_ctl_intf_cfg_v1(struct dpu_hw_ctl *ctx,
 		DPU_REG_WRITE(c, CTL_CDM_ACTIVE, cfg->cdm);
 }
 
+#define MERGE_3D_3_BASE 0x66700
+#define MERGE_3D_4_BASE 0x7e700
+#define MERGE_3D_MUX  0x000
+#define MERGE_3D_MODE  0x004
+
+#define CWB_0_BASE 0x66200
+#define CWB_1_BASE 0x66600
+#define CWB_2_BASE 0x7E200
+#define CWB_3_BASE 0x7E600
+#define CWB_MUX 0
+#define CWB_MODE 4
+
+static void dpu_hw_ctl_intf_hack_cwb(struct dpu_hw_ctl *ctx,
+		void __iomem *mmio, u32 cwb, u32 wb)
+{
+	struct dpu_hw_blk_reg_map *c = &ctx->hw;
+	u32 cwb_active, wb_active;
+	u32 merge3d_off;
+
+	wb_active = DPU_REG_READ(c, CTL_WB_ACTIVE);
+	cwb_active = DPU_REG_READ(c, CTL_CWB_ACTIVE);
+
+	wb_active |= BIT(wb - WB_0);
+
+	cwb_active |= cwb;
+
+	DPU_REG_WRITE(c, CTL_WB_ACTIVE, wb_active);
+	DPU_REG_WRITE(c, CTL_CWB_ACTIVE, cwb_active);
+	DPU_REG_WRITE(c, CTL_CDM_ACTIVE, BIT(0));
+
+	if (wb == WB_1) {
+		merge3d_off = MERGE_3D_3_BASE;
+		writel_relaxed(0, mmio + CWB_0_BASE + CWB_MUX);
+		writel_relaxed(0, mmio + CWB_0_BASE + CWB_MODE);
+		writel_relaxed(1, mmio + CWB_1_BASE + CWB_MUX);
+		writel_relaxed(0, mmio + CWB_1_BASE + CWB_MODE);
+	} else {
+		merge3d_off = MERGE_3D_4_BASE;
+		writel_relaxed(2, mmio + CWB_2_BASE + CWB_MUX);
+		writel_relaxed(0, mmio + CWB_2_BASE + CWB_MODE);
+		writel_relaxed(3, mmio + CWB_3_BASE + CWB_MUX);
+		writel_relaxed(0, mmio + CWB_3_BASE + CWB_MODE);
+	}
+
+	writel_relaxed(3, mmio + merge3d_off + MERGE_3D_MODE);
+	writel_relaxed(0, mmio + merge3d_off + MERGE_3D_MUX);
+}
+
+static void dpu_hw_ctl_clear_cwb(struct dpu_hw_ctl *ctx)
+{
+	struct dpu_hw_blk_reg_map *c = &ctx->hw;
+
+	DPU_REG_WRITE(c, CTL_WB_ACTIVE, 0);
+	DPU_REG_WRITE(c, CTL_CWB_ACTIVE, 0);
+}
+
 static void dpu_hw_ctl_intf_cfg(struct dpu_hw_ctl *ctx,
 		struct dpu_hw_intf_cfg *cfg)
 {
@@ -846,6 +902,8 @@ struct dpu_hw_ctl *dpu_hw_ctl_init(struct drm_device *dev,
 		c->ops.update_pending_flush_wb = dpu_hw_ctl_update_pending_flush_wb;
 		c->ops.update_pending_flush_cdm = dpu_hw_ctl_update_pending_flush_cdm;
 	}
+	c->ops.hack_cwb = dpu_hw_ctl_intf_hack_cwb;
+	c->ops.clear_cwb = dpu_hw_ctl_clear_cwb;
 	c->ops.clear_pending_flush = dpu_hw_ctl_clear_pending_flush;
 	c->ops.update_pending_flush = dpu_hw_ctl_update_pending_flush;
 	c->ops.get_pending_flush = dpu_hw_ctl_get_pending_flush;
