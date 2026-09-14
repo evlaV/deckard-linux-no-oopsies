@@ -1948,6 +1948,7 @@ static void _dpu_encoder_kickoff_phys(struct dpu_encoder_virt *dpu_enc)
 #define WB_IDX          16
 #define CDM_IDX         26
 #define CWB_IDX         28
+#define  MERGE_3D_IDX   23
 	/* hack CWB related ctl config in DSI path for 2nd dedicated CWB crtc case */
 	if (dpu_kms->is_dsi_driven_writeback &&
 	    dpu_enc->base.encoder_type != DRM_MODE_ENCODER_VIRTUAL) {
@@ -1960,12 +1961,15 @@ static void _dpu_encoder_kickoff_phys(struct dpu_encoder_virt *dpu_enc)
 			if(!dpu_kms->skip_cwb_right)
 				ctl->pending_wb_flush_mask |= BIT(WB_2 - WB_0);
 
-			if(!dpu_kms->skip_cwb_right)
-				ctl->pending_wb_flush_mask |= 0xf;
-			else
+			if(!dpu_kms->skip_cwb_right) {
+				ctl->pending_merge_3d_flush_mask = 0x18;
+				ctl->pending_cwb_flush_mask |= 0xf;
+			} else {
+				ctl->pending_merge_3d_flush_mask = 0x8;
 				ctl->pending_cwb_flush_mask = 0x3;
+			}
 
-			ctl->pending_flush_mask |= BIT(CWB_IDX) | BIT(WB_IDX);
+			ctl->pending_flush_mask |= BIT(CWB_IDX) | BIT(WB_IDX) | BIT(MERGE_3D_IDX);
 			//ctl->pending_cdm_flush_mask = BIT(0);
 		} else {
 			DPU_DEBUG_ENC(dpu_enc, "clear hacked CWB flush\n");
