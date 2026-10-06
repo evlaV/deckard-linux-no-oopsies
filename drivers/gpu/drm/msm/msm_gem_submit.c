@@ -552,8 +552,8 @@ void msm_submit_retire(struct msm_gem_submit *submit)
 	}
 }
 
-bool
-drm_gpuvm_validate_check(struct drm_gpuvm *gpuvm, struct drm_exec *exec);
+int
+drm_gpuvm_validate_besteffort(struct drm_gpuvm *gpuvm);
 
 int msm_ioctl_gem_submit(struct drm_device *dev, void *data,
 		struct drm_file *file)
@@ -679,38 +679,16 @@ int msm_ioctl_gem_submit(struct drm_device *dev, void *data,
 	if (ret)
 		goto out;
 
-	if (msm_context_is_vmbind(ctx)) {
-		struct drm_gpuvm_bo **temp_vm_bos;
-		int count;
-		submit_lock_objects_vmbind(submit);
+	atomic_inc_return(&to_msm_vm(submit->vm)->unevictable);
 
-		atomic_inc_return(&to_msm_vm(submit->vm)->unevictable);
-
-		ret = drm_gpuvm_validate_deferred_collect(submit->vm, &submit->exec, &temp_vm_bos, &count);
-		if (ret) {
-			printk("!!!!!!!!!!validation collect failed %d!!!!!!!!!\n", ret);
-			atomic_dec_return(&to_msm_vm(submit->vm)->unevictable);
-			goto out;
-		}
-
-		drm_exec_fini(&submit->exec);
-		submit->has_exec = false;
-
-		ret = drm_gpuvm_validate_deferred(submit->vm, temp_vm_bos, count);
-		if (ret) {
-			printk("!!!!!!!!!!validation failed %d!!!!!!!!!\n", ret);
-			atomic_dec_return(&to_msm_vm(submit->vm)->unevictable);
-			goto out;
-		}
-	}
+	drm_gpuvm_validate_besteffort(submit->vm);
 
 	/* copy_*_user while holding a ww ticket upsets lockdep */
 	ret = submit_lock_objects(submit);
 	if (ret)
 		goto out;
 
-	if (msm_context_is_vmbind(ctx))
-		atomic_dec_return(&to_msm_vm(submit->vm)->unevictable);
+	atomic_dec_return(&to_msm_vm(submit->vm)->unevictable);
 
 	ret = submit_pin_objects(submit);
 	if (ret)
@@ -827,10 +805,17 @@ int msm_ioctl_gem_submit(struct drm_device *dev, void *data,
 	submit_attach_object_fences(submit);
 
 	if (msm_context_is_vmbind(ctx)) {
-		if(drm_gpuvm_validate_check(submit->vm, &submit->exec))
-			printk("!!!!!!!!!!!!!validate checck  failed!!!!!!!!!!!!!\n");
+		/*
+		 * If we are not using VM_BIND, submit_pin_vmas() will validate
+		 * just the BOs attached to the submit.  In that case we don't
+		 * need to validate the _entire_ vm, because userspace tracked
+		 * what BOs are associated with the submit.
+		 */
+		ret = drm_gpuvm_validate(submit->vm, &submit->exec);
+		if (ret)
+			goto out;
 	}
-
+	
 	/* The scheduler owns a ref now: */
 	msm_gem_submit_get(submit);
 

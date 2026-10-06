@@ -608,8 +608,6 @@ drm_gpuvm_exec_unlock(struct drm_gpuvm_exec *vm_exec)
 }
 
 int drm_gpuvm_validate(struct drm_gpuvm *gpuvm, struct drm_exec *exec);
-int drm_gpuvm_validate_deferred_collect(struct drm_gpuvm *gpuvm, struct drm_exec *exec, struct drm_gpuvm_bo ***temp_vm_bos, int *count);
-int drm_gpuvm_validate_deferred(struct drm_gpuvm *gpuvm, struct drm_gpuvm_bo **temp_vm_bos, int count);
 void drm_gpuvm_resv_add_fence(struct drm_gpuvm *gpuvm,
 			      struct drm_exec *exec,
 			      struct dma_fence *fence,

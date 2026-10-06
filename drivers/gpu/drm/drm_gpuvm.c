@@ -1540,25 +1540,6 @@ drm_gpuvm_validate(struct drm_gpuvm *gpuvm, struct drm_exec *exec)
 }
 EXPORT_SYMBOL_GPL(drm_gpuvm_validate);
 
-bool
-drm_gpuvm_validate_check(struct drm_gpuvm *gpuvm, struct drm_exec *exec)
-{
-	const struct drm_gpuvm_ops *ops = gpuvm->ops;
-	struct drm_gpuvm_bo *vm_bo;
-	LIST_HEAD(evict);
-	bool ret = false;
-
-	for_each_vm_bo_in_list(gpuvm, evict, &evict, vm_bo) {
-		ret = true;
-	}
-	/* Drop ref in case we break out of the loop. */
-	drm_gpuvm_bo_put(vm_bo);
-	restore_vm_bo_list(gpuvm, evict);
-
-	return ret;
-}
-EXPORT_SYMBOL_GPL(drm_gpuvm_validate_check);
-
 #define MAX_TEMP_VM_BOS 4096
 
 int
@@ -1636,95 +1617,6 @@ drm_gpuvm_validate_besteffort(struct drm_gpuvm *gpuvm)
 	return ret;
 }
 EXPORT_SYMBOL_GPL(drm_gpuvm_validate_besteffort);
-
-
-int
-drm_gpuvm_validate_deferred_collect(struct drm_gpuvm *gpuvm, struct drm_exec *exec, struct drm_gpuvm_bo ***temp_vm_bos, int *count)
-{
-	const struct drm_gpuvm_ops *ops = gpuvm->ops;
-
-	if (unlikely(!ops || !ops->vm_bo_validate))
-		return -EOPNOTSUPP;
-
-	struct drm_gpuvm_bo *vm_bo;
-	LIST_HEAD(evict);
-	int ret = 0, tmp_array_size = 512;
-	*count = 0;
-
-	*temp_vm_bos = kvmalloc_array(tmp_array_size, sizeof(***temp_vm_bos), GFP_KERNEL);
-	if (!temp_vm_bos)
-		return -ENOMEM;
-
-	for_each_vm_bo_in_list(gpuvm, evict, &evict, vm_bo) {
-		if (unlikely(*count >= tmp_array_size)) {
-			struct drm_gpuvm_bo **tmp = kvrealloc(*temp_vm_bos, tmp_array_size + PAGE_SIZE, GFP_KERNEL);
-			if (!tmp) {
-				ret = -ENOMEM;
-				break;
-			}
-
-			*temp_vm_bos = tmp;
-			tmp_array_size += PAGE_SIZE;
-		}
-
-		(*temp_vm_bos)[(*count)++] = vm_bo;
-		drm_gpuvm_bo_get(vm_bo);
-	}
-
-	/* Drop ref in case we break out of the loop. */
-	drm_gpuvm_bo_put(vm_bo);
-	restore_vm_bo_list(gpuvm, evict);
-
-	if (ret) {
-		kvfree(*temp_vm_bos);
-		*temp_vm_bos = NULL;
-	}
-
-	return ret;
-}
-EXPORT_SYMBOL_GPL(drm_gpuvm_validate_deferred_collect);
-
-int
-drm_gpuvm_validate_deferred(struct drm_gpuvm *gpuvm, struct drm_gpuvm_bo **temp_vm_bos, int count)
-{
-	const struct drm_gpuvm_ops *ops = gpuvm->ops;
-	struct drm_exec exec;
-
-	if (unlikely(!ops || !ops->vm_bo_validate))
-		return -EOPNOTSUPP;
-
-	struct drm_gpuvm_bo *vm_bo;
-	int ret = 0;
-	for(int i = 0; i < count; i++) {
-		vm_bo = temp_vm_bos[i];
-
-		drm_exec_init(&exec, 0, 1);
-		drm_exec_until_all_locked(&exec) {
-			ret = drm_exec_lock_obj(&exec, drm_gpuvm_resv_obj(gpuvm));
-			if (!ret && (vm_bo->obj->resv != drm_gpuvm_resv(gpuvm)))
-				ret = drm_exec_lock_obj(&exec, vm_bo->obj);
-			drm_exec_retry_on_contention(&exec);
-			if (ret)
-				break;
-		}
-
-		if (!ret)
-			ret = ops->vm_bo_validate(vm_bo, NULL);
-
-		drm_exec_fini(&exec);
-
-		drm_gpuvm_bo_put(vm_bo);
-
-		if (ret)
-			break;
-	}
-
-out_free:
-	kvfree(temp_vm_bos);
-
-	return ret;
-}
-EXPORT_SYMBOL_GPL(drm_gpuvm_validate_deferred);
 
 /**
  * drm_gpuvm_resv_add_fence - add fence to private and all extobj
