@@ -706,12 +706,11 @@ int msm_ioctl_gem_submit(struct drm_device *dev, void *data,
 
 	/* copy_*_user while holding a ww ticket upsets lockdep */
 	ret = submit_lock_objects(submit);
+	if (ret)
+		goto out;
 
 	if (msm_context_is_vmbind(ctx))
 		atomic_dec_return(&to_msm_vm(submit->vm)->unevictable);
-
-	if (ret)
-		goto out;
 
 	ret = submit_pin_objects(submit);
 	if (ret)
