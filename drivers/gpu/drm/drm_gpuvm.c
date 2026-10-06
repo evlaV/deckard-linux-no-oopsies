@@ -1651,16 +1651,13 @@ drm_gpuvm_validate_deferred_collect(struct drm_gpuvm *gpuvm, struct drm_exec *ex
 	int ret = 0, tmp_array_size = 512;
 	*count = 0;
 
-	*temp_vm_bos = kvmalloc_array(tmp_array_size, sizeof(**temp_vm_bos), GFP_KERNEL);
-	if (!*temp_vm_bos)
+	*temp_vm_bos = kvmalloc_array(tmp_array_size, sizeof(***temp_vm_bos), GFP_KERNEL);
+	if (!temp_vm_bos)
 		return -ENOMEM;
 
 	for_each_vm_bo_in_list(gpuvm, evict, &evict, vm_bo) {
 		if (unlikely(*count >= tmp_array_size)) {
-			struct drm_gpuvm_bo **tmp = kvrealloc(*temp_vm_bos,
-							      array_size(tmp_array_size + PAGE_SIZE,
-									 sizeof(**temp_vm_bos)),
-							      GFP_KERNEL);
+			struct drm_gpuvm_bo **tmp = kvrealloc(*temp_vm_bos, tmp_array_size + PAGE_SIZE, GFP_KERNEL);
 			if (!tmp) {
 				ret = -ENOMEM;
 				break;
