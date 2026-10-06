@@ -1595,10 +1595,10 @@ msm_ioctl_vm_bind(struct drm_device *dev, void *data, struct drm_file *file)
 	drm_exec_init(&exec, flags, nr_bos + 1);
 
 	ret = vm_bind_job_lock_objects(job, &exec);
-
-	atomic_dec_return(&to_msm_vm(job->vm)->unevictable);
 	if (ret)
 		goto out;
+
+	atomic_dec_return(&to_msm_vm(job->vm)->unevictable);
 
 	ret = vm_bind_job_pin_objects(job);
 	if (ret)
