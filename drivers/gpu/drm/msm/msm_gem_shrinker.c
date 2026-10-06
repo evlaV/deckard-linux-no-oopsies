@@ -286,12 +286,17 @@ msm_gem_shrinker_vmap(struct notifier_block *nb, unsigned long event, void *ptr)
 	return NOTIFY_DONE;
 }
 
-struct drm_gem_object *tmp_objs[4096];
+#define MAX_TMP_OBJS 4096
 
 unsigned long msm_gem_shrinker_evict_all_ctx(struct drm_device *dev, struct drm_file *file) {
+	struct drm_gem_object **tmp_objs;
 	struct drm_gem_object *obj;
 	unsigned long obj_size, freed = 0;
 	int id, count = 0;
+
+	tmp_objs = kvmalloc_array(MAX_TMP_OBJS, sizeof(*tmp_objs), GFP_KERNEL);
+	if (!tmp_objs)
+		return 0;
 
 	/* TODO handle non vmbind? */
 	// if (msm_context_is_vmbind(ctx))
@@ -300,8 +305,10 @@ unsigned long msm_gem_shrinker_evict_all_ctx(struct drm_device *dev, struct drm_
 	// drm_file.c:915
 	spin_lock(&file->table_lock);
 	idr_for_each_entry (&file->object_idr, obj, id) {
+		/* Hold a reference so the handle can be closed while we use it. */
+		drm_gem_object_get(obj);
 		tmp_objs[count++] = obj;
-		if (count == 4096) {
+		if (count == MAX_TMP_OBJS) {
 			printk("shrink_pid: too many BOs\n");
 			break;
 		}
@@ -312,20 +319,24 @@ unsigned long msm_gem_shrinker_evict_all_ctx(struct drm_device *dev, struct drm_
 		obj = tmp_objs[i];
 		struct msm_gem_object *msm_obj = to_msm_bo(obj);
 
-		if (drm_gem_is_imported(obj) || msm_obj->pin_count)
-			continue;
+		if (msm_gem_is_vbo(obj) || drm_gem_is_imported(obj) || msm_obj->pin_count)
+			goto next;
 
 		/* If resident count up*/
 		if (msm_obj->pages)
 			obj_size = obj->size;
 		else
-			continue;
+			goto next;
 
 		msm_gem_lock(obj);
 		if (active_evict(obj))
 			freed += obj_size;
 		msm_gem_unlock(obj);
+next:
+		drm_gem_object_put(obj);
 	}
+
+	kvfree(tmp_objs);
 
 	return freed;
 }

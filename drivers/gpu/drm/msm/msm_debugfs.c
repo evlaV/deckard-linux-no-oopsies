@@ -278,9 +278,11 @@ shrink_pid_set(void *data, u64 val)
 
 	mutex_lock(&dev->filelist_mutex);
 	list_for_each_entry_reverse(priv, &dev->filelist, lhead) {
-		struct pid *pid = rcu_dereference(priv->pid);
+		pid_t pid_nr;
 
-		pid_t pid_nr = pid_vnr(pid);
+		rcu_read_lock();
+		pid_nr = pid_vnr(rcu_dereference(priv->pid));
+		rcu_read_unlock();
 		if (pid_nr == val) {
 			last_pid_shrink_freed = msm_gem_shrinker_evict_all_ctx(dev, priv);
 			//printk("%d %ld\n",pid_nr,last_pid_shrink_freed);
@@ -317,9 +319,11 @@ unevictable_pid_set(void *data, u64 val)
 	mutex_lock(&dev->filelist_mutex);
 	list_for_each_entry_reverse(priv, &dev->filelist, lhead) {
 		struct msm_context *ctx = priv->driver_priv;
-		struct pid *pid = rcu_dereference(priv->pid);
+		pid_t pid_nr;
 
-		pid_t pid_nr = pid_vnr(pid);
+		rcu_read_lock();
+		pid_nr = pid_vnr(rcu_dereference(priv->pid));
+		rcu_read_unlock();
 		if (pid_nr == val) {
 			if (ctx->vm)
 				atomic_inc_return(&to_msm_vm(ctx->vm)->unevictable);
