@@ -181,7 +181,10 @@ static unsigned long
 msm_gem_shrinker_scan(struct shrinker *shrinker, struct shrink_control *sc)
 {
 	struct msm_drm_private *priv = shrinker->private_data;
-    
+
+	if (sc->opportunistic_compaction)
+		return 0;
+
 	if (!priv->msm_shrinker_enable) 
 		return 0;
 
