@@ -102,6 +102,47 @@
 #define MAX17320_PROTSTATUS_RESDFAULT (1 << 1)
 #define MAX17320_PROTSTATUS_SHDN (1 << 0)
 
+/* ProtAlrt mirrors ProtStatus except bit 0, which is LDet instead of Ship */
+#define MAX17320_PROTALRT_LDET (1 << 0)
+
+/* Status register bits specific to MAX17320 */
+#define MAX17320_STATUS_DSOCI (1 << 7)
+#define MAX17320_STATUS_DONT_CARE (0x0839) /* bits 11, 5, 4, 3, 0 are undefined */
+
+/* nBattStatus register bits for MAX17320 */
+#define MAX17320_NBATTSTATUS_PERMFAIL (1 << 15)
+#define MAX17320_NBATTSTATUS_OVPF (1 << 14)
+#define MAX17320_NBATTSTATUS_OTPF (1 << 13)
+#define MAX17320_NBATTSTATUS_CFETFS (1 << 12)
+#define MAX17320_NBATTSTATUS_DFETFS (1 << 11)
+#define MAX17320_NBATTSTATUS_FETFO (1 << 10)
+#define MAX17320_NBATTSTATUS_LDET (1 << 9)
+#define MAX17320_NBATTSTATUS_CHKSUMF_UVPF (1 << 8)
+#define MAX17320_NBATTSTATUS_LEAKCURR (0xFF)
+
+/* nFaultLog register bits for MAX17320 (valid when nNVCfg2.enFL = 1) */
+#define MAX17320_NFAULTLOG_TOOHOTC (1 << 7)
+#define MAX17320_NFAULTLOG_TOOCOLDC (1 << 6)
+#define MAX17320_NFAULTLOG_OVP (1 << 5)
+#define MAX17320_NFAULTLOG_OCCP (1 << 4)
+#define MAX17320_NFAULTLOG_DIEHOT (1 << 3)
+#define MAX17320_NFAULTLOG_IMBALANCE (1 << 2)
+#define MAX17320_NFAULTLOG_UVP (1 << 1)
+#define MAX17320_NFAULTLOG_ODCP (1 << 0)
+
+/* nNVCfg2 register bits for MAX17320 */
+#define MAX17320_NNVCFG2_ENFL (1 << 5)
+
+/* HProtCfg2 register bits for MAX17320 */
+#define MAX17320_HPROTCFG2_AOLDO_POS 14
+#define MAX17320_HPROTCFG2_AOLDO (0x3 << MAX17320_HPROTCFG2_AOLDO_POS)
+#define MAX17320_HPROTCFG2_COMMOVRD (1 << 8)
+#define MAX17320_HPROTCFG2_CPCFG_POS 5
+#define MAX17320_HPROTCFG2_CPCFG (0x3 << MAX17320_HPROTCFG2_CPCFG_POS)
+#define MAX17320_HPROTCFG2_PBEN (1 << 3)
+#define MAX17320_HPROTCFG2_DISS (1 << 1)
+#define MAX17320_HPROTCFG2_CHGS (1 << 0)
+
 /* ProtStatus register bits for MAX17330 */
 #define MAX17330_PROTSTATUS_CHGWDT (1 << 15)
 #define MAX17330_PROTSTATUS_TOOHOTC (1 << 14)
@@ -492,6 +533,9 @@ enum register_ids {
 	IALRTTH_REG,
 	PROTSTATUS_REG,
 	PROTALRTS_REG,
+	HPROTCFG2_REG,
+	NBATTSTATUS_REG,
+	NFAULTLOG_REG,
 	ATTTE_REG,
 	VFOCV_REG,
 	CELL1_REG,
@@ -508,6 +552,7 @@ enum register_ids {
 	CHGSTAT_REG,
 	LEAKCURRREP_REG,
 	NNVCFG1_REG,
+	NNVCFG2_REG,
 	NICHGCFG_REG,
 	NICHGCFG1_REG,
 	NICHGCFG2_REG,
@@ -716,6 +761,10 @@ static const u16 max17320_regs[] = {
 	[IALRTTH_REG] = 0xAC,
 	[PROTSTATUS_REG] = 0xD9,
 	[PROTALRTS_REG] = 0xAF,
+	[HPROTCFG2_REG] = 0x1F1,
+	[NBATTSTATUS_REG] = 0x1A8,
+	[NFAULTLOG_REG] = 0x1AE,
+	[NNVCFG2_REG] = 0x1BA,
 	[ATTTE_REG] = 0xDD,
 	[BATT_REG] = 0xDA,
 	[VFOCV_REG] = 0xFB,
@@ -5701,6 +5750,277 @@ static void max1720x_set_alert_thresholds(struct max1720x_priv *priv)
 	max1720x_regmap_write(priv, priv->regs[IALRTTH_REG], val);
 }
 
+/**
+ * struct max17320_bit_desc - Human readable name for a register bit
+ * @mask: bit mask within the 16-bit register
+ * @name: short name used in the log
+ * @dis_fet: fault opens the discharge FET, so it can cut power to the system
+ */
+struct max17320_bit_desc {
+	u16 mask;
+	const char *name;
+	bool dis_fet;
+};
+
+static const struct max17320_bit_desc max17320_status_bits[] = {
+	{ MAX1720X_STATUS_PROTECTION_ALRT, "PA (protection alert)" },
+	{ MAX1720X_STATUS_SOC_MAX_ALRT, "Smx (SOC max)" },
+	{ MAX1720X_STATUS_TEMP_MAX_ALRT, "Tmx (temp max)" },
+	{ MAX1720X_STATUS_VOLT_MAX_ALRT, "Vmx (voltage max)" },
+	{ MAX1720X_STATUS_SOC_MIN_ALRT, "Smn (SOC min)" },
+	{ MAX1720X_STATUS_TEMP_MIN_ALRT, "Tmn (temp min)" },
+	{ MAX1720X_STATUS_VOLT_MIN_ALRT, "Vmn (voltage min)" },
+	{ MAX17320_STATUS_DSOCI, "dSOCi (SOC 1% change)" },
+	{ MAX1720X_STATUS_CURR_MAX_ALRT, "Imx (current max)" },
+	{ MAX1720X_STATUS_CURR_MIN_ALRT, "Imn (current min)" },
+	{ MAX1720X_STATUS_POR, "POR (gauge reset)" },
+};
+
+/*
+ * Discharging faults (ODCP, UVP, TooHotD, DieHot) and PermFail open the
+ * discharge FET, so they can cut power to the system.
+ */
+#define MAX17320_PROT_COMMON_BITS \
+	{ MAX17320_PROTSTATUS_CHGWDT, "ChgWDT (charge watchdog timeout)" }, \
+	{ MAX17320_PROTSTATUS_TOOHOTC, "TooHotC (overtemp while charging)" }, \
+	{ MAX17320_PROTSTATUS_FULL, "Full (full detection)" }, \
+	{ MAX17320_PROTSTATUS_TOOCOLDC, "TooColdC (undertemp while charging)" }, \
+	{ MAX17320_PROTSTATUS_OVP, "OVP (cell overvoltage)" }, \
+	{ MAX17320_PROTSTATUS_OCCP, "OCCP (charge overcurrent)" }, \
+	{ MAX17320_PROTSTATUS_QOVFLW, "Qovflw (charge capacity overflow)" }, \
+	{ MAX17320_PROTSTATUS_PREQF, "PreqF (prequal timeout)" }, \
+	{ MAX17320_PROTSTATUS_IMBALANCE, "Imbalance (cell imbalance)" }, \
+	{ MAX17320_PROTSTATUS_PERMFAIL, "PermFail (permanent failure)", true }, \
+	{ MAX17320_PROTSTATUS_DIEHOT, "DieHot (gauge die overtemp)", true }, \
+	{ MAX17320_PROTSTATUS_TOOHOTD, "TooHotD (overtemp while discharging)", true }, \
+	{ MAX17320_PROTSTATUS_UVP, "UVP (cell undervoltage)", true }, \
+	{ MAX17320_PROTSTATUS_ODCP, "ODCP (discharge overcurrent)", true }, \
+	{ MAX17320_PROTSTATUS_RESDFAULT, "ResDFault" }
+
+static const struct max17320_bit_desc max17320_prot_status_bits[] = {
+	MAX17320_PROT_COMMON_BITS,
+	{ MAX17320_PROTSTATUS_SHDN, "Ship (ship state)" },
+};
+
+static const struct max17320_bit_desc max17320_prot_alrt_bits[] = {
+	MAX17320_PROT_COMMON_BITS,
+	{ MAX17320_PROTALRT_LDET, "LDet (leakage detection)" },
+};
+
+static const struct max17320_bit_desc max17320_n_batt_status_bits[] = {
+	{ MAX17320_NBATTSTATUS_PERMFAIL, "PermFail (permanent failure, FETs held off)", true },
+	{ MAX17320_NBATTSTATUS_OVPF, "OVPF (severe overvoltage)" },
+	{ MAX17320_NBATTSTATUS_OTPF, "OTPF (severe overtemp)" },
+	{ MAX17320_NBATTSTATUS_CFETFS, "CFETFs (charge FET shorted)" },
+	{ MAX17320_NBATTSTATUS_DFETFS, "DFETFs (discharge FET shorted)" },
+	{ MAX17320_NBATTSTATUS_FETFO, "FETFo (FET failed open)" },
+	{ MAX17320_NBATTSTATUS_LDET, "LDet (leakage detection fault)" },
+	{ MAX17320_NBATTSTATUS_CHKSUMF_UVPF, "ChksumF/UVPF (NVM checksum or undervoltage perm fail)" },
+};
+
+static const struct max17320_bit_desc max17320_n_fault_log_bits[] = {
+	{ MAX17320_NFAULTLOG_TOOHOTC, "TooHotC" },
+	{ MAX17320_NFAULTLOG_TOOCOLDC, "TooColdC" },
+	{ MAX17320_NFAULTLOG_OVP, "OVP" },
+	{ MAX17320_NFAULTLOG_OCCP, "OCCP" },
+	{ MAX17320_NFAULTLOG_DIEHOT, "DieHot" },
+	{ MAX17320_NFAULTLOG_IMBALANCE, "Imbalance" },
+	{ MAX17320_NFAULTLOG_UVP, "UVP" },
+	{ MAX17320_NFAULTLOG_ODCP, "ODCP" },
+};
+
+/**
+ * max17320_decode_bits() - Format the set bits of a register as names
+ * @buf: output buffer
+ * @len: size of @buf
+ * @val: register value
+ * @desc: bit descriptions
+ * @n: number of entries in @desc
+ * @dis_fet: set to true if any decoded bit opens the discharge FET (may be NULL)
+ *
+ * Bits not listed in @desc are appended as a raw mask so nothing is hidden.
+ */
+static void max17320_decode_bits(char *buf, size_t len, unsigned int val,
+				 const struct max17320_bit_desc *desc, size_t n,
+				 bool *dis_fet)
+{
+	unsigned int known = 0;
+	int pos = 0;
+	size_t i;
+
+	for (i = 0; i < n; i++) {
+		known |= desc[i].mask;
+		if (!(val & desc[i].mask))
+			continue;
+		pos += scnprintf(buf + pos, len - pos, "%s%s",
+				 pos ? ", " : "", desc[i].name);
+		if (dis_fet && desc[i].dis_fet)
+			*dis_fet = true;
+	}
+
+	if (val & ~known & 0xFFFF)
+		pos += scnprintf(buf + pos, len - pos, "%sother=0x%04x",
+				 pos ? ", " : "", val & ~known & 0xFFFF);
+
+	if (!pos)
+		scnprintf(buf, len, "none");
+}
+
+/**
+ * max17320_log_fault_snapshot() - Log live pack readings alongside a fault
+ * @priv: driver instance
+ *
+ * These are current readings, not values captured at the time of the fault,
+ * but they show whether the condition is still present. PCKP far below BATT
+ * means the protection FETs are still open.
+ */
+static void max17320_log_fault_snapshot(struct max1720x_priv *priv)
+{
+	unsigned int batt = 0, pckp = 0, curr = 0, die = 0;
+	int temp = 0, die_temp, curr_ma;
+
+	if (max1720x_regmap_read(priv, priv->regs[BATT_REG], &batt) < 0 ||
+	    max1720x_regmap_read(priv, priv->regs[PCKP_REG], &pckp) < 0 ||
+	    max1720x_regmap_read(priv, priv->regs[CURRENT_REG], &curr) < 0 ||
+	    max1720x_regmap_read(priv, priv->regs[DIETEMP_REG], &die) < 0 ||
+	    max1720x_get_temperature(priv, &temp) < 0) {
+		dev_err(priv->dev, "Fault snapshot read failed\n");
+		return;
+	}
+
+	curr_ma = max1720x_raw_current_to_uamps(priv, sign_extend32(curr, 15)) / 1000;
+	die_temp = (sign_extend32(die, 15) * 10) >> 8; /* LSB: 1/256 C, to 0.1 C */
+
+	dev_warn(priv->dev,
+		 "  Now: BATT=%u mV PCKP=%u mV Current=%d mA Temp=%s%d.%d C DieTemp=%s%d.%d C\n",
+		 (batt * 625 / 2) / 1000, (pckp * 625 / 2) / 1000, curr_ma,
+		 temp < 0 ? "-" : "", abs(temp) / 10, abs(temp) % 10,
+		 die_temp < 0 ? "-" : "", abs(die_temp) / 10, abs(die_temp) % 10);
+}
+
+/**
+ * max17320_log_fault_latches() - Log and clear latched pack faults at init
+ * @priv: driver instance
+ * @status: Status register value read before Status.POR is cleared
+ *
+ * The MAX17320 is powered from the pack, so its protection and POR latches
+ * survive the SoC losing power. Log them so a pack trip (UVP, ODCP, TooHotD,
+ * ...) can be told apart from a PMIC UVLO or thermal reset after the fact,
+ * then clear ProtAlrt. The caller clears Status.PA afterwards, which is the
+ * order the data sheet requires (ProtAlrt first, then Status.PA).
+ *
+ * Return: true if ProtAlrt is known to be clear, so Status.PA may be cleared.
+ */
+static bool max17320_log_fault_latches(struct max1720x_priv *priv, unsigned int status)
+{
+	static const char * const cp_cfg_str[] = { "6V", "8V", "10V", "reserved" };
+	static const char * const aoldo_str[] = { "off", "3.4V", "1.8V", "3.4V" };
+	unsigned int prot_status = 0;
+	unsigned int prot_alrt = 0;
+	unsigned int n_batt_status = 0;
+	unsigned int n_fault_log = 0;
+	unsigned int h_prot_cfg2 = 0;
+	unsigned int n_nv_cfg2 = 0;
+	bool prot_alrt_ok = true;
+	bool dis_fet = false;
+	char decoded[256];
+	int ret;
+
+	ret = max1720x_regmap_read(priv, priv->regs[PROTSTATUS_REG], &prot_status);
+	if (ret < 0)
+		dev_err(priv->dev, "ProtStatus read failed (%d)\n", ret);
+
+	ret = max1720x_regmap_read(priv, priv->regs[PROTALRTS_REG], &prot_alrt);
+	if (ret < 0) {
+		dev_err(priv->dev, "ProtAlrt read failed (%d)\n", ret);
+		prot_alrt_ok = false;
+	}
+
+	ret = max1720x_regmap_read(priv, priv->regs[NBATTSTATUS_REG], &n_batt_status);
+	if (ret < 0)
+		dev_err(priv->dev, "nBattStatus read failed (%d)\n", ret);
+
+	ret = max1720x_regmap_read(priv, priv->regs[NFAULTLOG_REG], &n_fault_log);
+	if (ret < 0)
+		dev_err(priv->dev, "nFaultLog read failed (%d)\n", ret);
+
+	ret = max1720x_regmap_read(priv, priv->regs[HPROTCFG2_REG], &h_prot_cfg2);
+	if (ret < 0)
+		dev_err(priv->dev, "HProtCfg2 read failed (%d)\n", ret);
+
+	ret = max1720x_regmap_read(priv, priv->regs[NNVCFG2_REG], &n_nv_cfg2);
+	if (ret < 0)
+		dev_err(priv->dev, "nNVCfg2 read failed (%d)\n", ret);
+
+	dev_warn(priv->dev, "Fault latches at init:\n");
+
+	/* Undefined Status bits can read as 1, so drop them before decoding */
+	max17320_decode_bits(decoded, sizeof(decoded), status & ~MAX17320_STATUS_DONT_CARE,
+			     max17320_status_bits, ARRAY_SIZE(max17320_status_bits), NULL);
+	dev_warn(priv->dev, "  Status      0x%04x: %s\n", status, decoded);
+
+	max17320_decode_bits(decoded, sizeof(decoded), prot_status, max17320_prot_status_bits,
+			     ARRAY_SIZE(max17320_prot_status_bits), NULL);
+	dev_warn(priv->dev, "  ProtStatus  0x%04x: %s\n", prot_status, decoded);
+
+	max17320_decode_bits(decoded, sizeof(decoded), prot_alrt, max17320_prot_alrt_bits,
+			     ARRAY_SIZE(max17320_prot_alrt_bits), &dis_fet);
+	dev_warn(priv->dev, "  ProtAlrt    0x%04x: %s\n", prot_alrt, decoded);
+
+	/* Low byte is LeakCurr, LSB 3.125 uV across Rsense (0.625 mA with 5 mOhm) */
+	max17320_decode_bits(decoded, sizeof(decoded), n_batt_status & ~MAX17320_NBATTSTATUS_LEAKCURR,
+			     max17320_n_batt_status_bits, ARRAY_SIZE(max17320_n_batt_status_bits),
+			     &dis_fet);
+	dev_warn(priv->dev, "  nBattStatus 0x%04x: %s; LeakCurr=%u\n", n_batt_status, decoded,
+		 n_batt_status & MAX17320_NBATTSTATUS_LEAKCURR);
+
+	if (n_nv_cfg2 & MAX17320_NNVCFG2_ENFL) {
+		max17320_decode_bits(decoded, sizeof(decoded), n_fault_log,
+				     max17320_n_fault_log_bits, ARRAY_SIZE(max17320_n_fault_log_bits),
+				     NULL);
+		dev_warn(priv->dev, "  nFaultLog   0x%04x: %s (faults seen this log period)\n",
+			 n_fault_log, decoded);
+	} else {
+		dev_warn(priv->dev, "  nFaultLog   0x%04x: not a fault log (nNVCfg2.enFL=0)\n",
+			 n_fault_log);
+	}
+
+	dev_warn(priv->dev,
+		 "  HProtCfg2   0x%04x: CHG FET %s, DIS FET %s, PBEN=%d, CPCfg=%s, CommOvrd=%d, AOLDO=%s\n",
+		 h_prot_cfg2,
+		 (h_prot_cfg2 & MAX17320_HPROTCFG2_CHGS) ? "on" : "off",
+		 (h_prot_cfg2 & MAX17320_HPROTCFG2_DISS) ? "on" : "off",
+		 !!(h_prot_cfg2 & MAX17320_HPROTCFG2_PBEN),
+		 cp_cfg_str[(h_prot_cfg2 & MAX17320_HPROTCFG2_CPCFG) >> MAX17320_HPROTCFG2_CPCFG_POS],
+		 !!(h_prot_cfg2 & MAX17320_HPROTCFG2_COMMOVRD),
+		 aoldo_str[(h_prot_cfg2 & MAX17320_HPROTCFG2_AOLDO) >> MAX17320_HPROTCFG2_AOLDO_POS]);
+
+	if (dis_fet)
+		dev_warn(priv->dev,
+			 "  Latched pack protection fault opens the discharge FET; likely cause of the last power loss\n");
+	else if (prot_alrt)
+		dev_warn(priv->dev,
+			 "  Latched pack protection fault does not open the discharge FET; it did not cut system power\n");
+	else if (status & MAX1720X_STATUS_POR)
+		dev_warn(priv->dev,
+			 "  Gauge reset with no protection fault latched; pack was disconnected, fully drained or this is first power-up\n");
+
+	if (prot_alrt || prot_status || (status & MAX1720X_STATUS_PROTECTION_ALRT) ||
+	    (n_batt_status & ~MAX17320_NBATTSTATUS_LEAKCURR))
+		max17320_log_fault_snapshot(priv);
+
+	/* Clear ProtAlrt before Status.PA, per the data sheet */
+	if (prot_alrt_ok && prot_alrt) {
+		ret = max1720x_regmap_write(priv, priv->regs[PROTALRTS_REG], 0x0000);
+		if (ret < 0) {
+			dev_err(priv->dev, "ProtAlrt clear failed (%d)\n", ret);
+			prot_alrt_ok = false;
+		}
+	}
+
+	return prot_alrt_ok;
+}
+
 static int max1720x_init(struct max1720x_priv *priv)
 {
 	int ret;
@@ -5790,6 +6110,12 @@ static int max1720x_init(struct max1720x_priv *priv)
 	ret = max1720x_regmap_read(priv, priv->regs[STATUS_REG], &reg);
 	if (ret < 0)
 		return ret;
+
+	if (priv->driver_data == ID_MAX17320) {
+		/* Log latched faults before POR is cleared, then clear ProtAlrt and Status.PA */
+		if (max17320_log_fault_latches(priv, reg))
+			reg &= ~MAX1720X_STATUS_PROTECTION_ALRT;
+	}
 
 	ret = max1720x_regmap_write(priv, priv->regs[STATUS_REG],
 											reg & ~MAX1720X_STATUS_POR);
