@@ -997,7 +997,7 @@ static int max34417_probe(struct i2c_client *client)
 		of_property_read_string(child, "label", &input->label);
 		
 		/* Get shunt resistor value if it exists for the input*/
-		ret = of_property_read_u32(np, "shunt-resistor", &shunt_resistor);
+		ret = of_property_read_u32(child, "shunt-resistor", &shunt_resistor);
 		input->shunt_resistor = ret ? r_sense : shunt_resistor;
 
 		u32 correction = 1;
