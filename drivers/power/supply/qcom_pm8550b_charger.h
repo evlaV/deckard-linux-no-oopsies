@@ -169,13 +169,29 @@
 #define CHGR2_ICHG_SNS_CTRL_USE_RSNS BIT(2)
 #define CHGR2_ICHG_SNS_CTRL_RSNS_SEL_1MOHM BIT(0)
 
+/* MISC_AICL_STATUS bits are level signals: they show the current state, not a latched result */
 #define MISC_AICL_STATUS (0x06)
-#define MISC_AICL_STATUS_DONE_MASK BIT(0)
+#define MISC_AICL_STATUS_DONE_MASK BIT(0) /* ICL reached ICL_MAX or one step below collapse */
+#define MISC_AICL_STATUS_FAIL_MASK BIT(1) /* ICL reached 50mA but USB input still collapsed */
+#define MISC_AICL_STATUS_ICL_IMIN_MASK BIT(2) /* ICL collapsed to ICLmin (50mA) */
+#define MISC_AICL_STATUS_USBIN_COLLAPSE_MASK BIT(4) /* USBIN below AICL_THRESHOLD */
+#define MISC_AICL_STATUS_HIGHEST_DC_MASK BIT(5) /* Switcher in high duty cycle */
+#define MISC_AICL_STATUS_SOFT_ILIMIT_MASK BIT(6) /* Switcher in input current limiting */
+#define MISC_AICL_STATUS_LIVE_MASK GENMASK(6, 0)
+
+/*
+ * aicl_state sysfs bitmask. Bits 6:0 are the live MISC_AICL_STATUS bits;
+ * bits 8 and 9 are the cached result of the last AICL run, cleared by
+ * aicl_rerun and on power loss.
+ */
+#define PM8550B_AICL_STATE_DONE BIT(8)
+#define PM8550B_AICL_STATE_FAILED BIT(9)
 
 #define MISC_INT_STATUS (0x10)
 
 #define MISC_AICL_CMD (0x50)
-#define MISC_AICL_RESTART_MASK BIT(1)
+#define MISC_AICL_RERUN_MASK BIT(0) /* Rerun from the previous result, self clearing */
+#define MISC_AICL_RESTART_MASK BIT(1) /* Restart from scratch, self clearing */
 
 #define MISC_AICL_RERUN_TIME_CFG (0x54)
 #define MISC_AICL_RERUN_TIME_ENABLE_MASK GENMASK(5, 4)
