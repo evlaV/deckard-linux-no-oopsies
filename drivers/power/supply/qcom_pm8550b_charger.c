@@ -689,7 +689,7 @@ static ssize_t status_detailed_show(struct device *dev, struct device_attribute 
 	regmap_read(chg->regmap, chg->base[BASE_CHG1] + CHGR_CHG_RT_STS, &reg);
 	at += sysfs_emit_at(buf, at, "Input OK: %d\n", !!(reg & CHGR_CHG_CHG_STS_INPUT_OK_MASK));
 	at += sysfs_emit_at(buf, at, "Buck OK: %d\n", !!(reg & CHGR_CHG_CHG_STS_BUCK_OK_MASK));
-	at += sysfs_emit_at(buf, at, "Temp OK: %d\n", !!(reg & CHGR_CHG_CHG_STS_BUCK_OK_MASK));
+	at += sysfs_emit_at(buf, at, "Temp OK: %d\n", !!(reg & CHGR_CHG_CHG_STS_TEMP_OK_MASK));
 	at += sysfs_emit_at(buf, at, "BATT OK: %d\n", !!(reg & CHGR_CHG_CHG_STS_BATT_OK_MASK));
 	at += sysfs_emit_at(buf, at, "CHG Ctrl OK: %d\n", !!(reg & CHGR_CHG_CHG_STS_CHG_CTRL_OK_MASK));
 
@@ -704,7 +704,7 @@ static ssize_t status_detailed_show(struct device *dev, struct device_attribute 
 	regmap_read(chg->regmap, chg->base[BASE_CHG1] + CHGR_BUCK_RT_STS, &reg);
 	at += sysfs_emit_at(buf, at, "Buck SS Done: %d\n", !(reg & CHGR_BUCK_RT_STS_SS_NOT_DONE_MASK));
 	at += sysfs_emit_at(buf, at, "Buck OC: %d\n", !!(reg & CHGR_BUCK_RT_STS_OC_MASK));
-	at += sysfs_emit_at(buf, at, "VPH UV: %d\n", !!(reg & CHGR_BUCK_RT_STS_VPH_UV_MASK));
+	at += sysfs_emit_at(buf, at, "VPH OV: %d\n", !!(reg & CHGR_BUCK_RT_STS_VPH_OV_MASK));
 
 	/* Temp Status */
 	regmap_read(chg->regmap, chg->base[BASE_CHG1] + CHGR_TEMP_RT_STS, &reg);
@@ -851,6 +851,83 @@ static ssize_t charger_status_show(struct device *dev, struct device_attribute *
 	return sysfs_emit(buf, "%u\n", READ_ONCE(chg->charger_status));
 }
 
+/**
+ * pm8550b_temp_sts_pack() - Pack temperature related STS bits into one byte
+ * @chg_sts: CHG_RT_STS or CHG_LT_STS value
+ * @temp_sts: TEMP_RT_STS or TEMP_LT_STS value
+ * @batt_sts: BATT_RT_STS or BATT_LT_STS value
+ *
+ * Return: PM8550B_TEMP_STS_* bits 6:0
+ */
+static unsigned int pm8550b_temp_sts_pack(unsigned int chg_sts, unsigned int temp_sts,
+					  unsigned int batt_sts)
+{
+	unsigned int val = 0;
+
+	if (chg_sts & CHGR_CHG_CHG_STS_TEMP_OK_MASK)
+		val |= PM8550B_TEMP_STS_TEMP_OK;
+	if (temp_sts & CHGR_TEMP_RT_STS_CHGR_TEMP_MASK)
+		val |= PM8550B_TEMP_STS_CHG_TEMP_SHDN;
+	if (temp_sts & CHGR_TEMP_RT_STS_SMB_TEMP_MASK)
+		val |= PM8550B_TEMP_STS_SMB_TEMP_SHDN;
+	if (temp_sts & CHGR_TEMP_RT_STS_WLS_THERM_MASK)
+		val |= PM8550B_TEMP_STS_WLS_THERM_SHDN;
+	if (temp_sts & CHGR_TEMP_RT_STS_USB_THERM_MASK)
+		val |= PM8550B_TEMP_STS_USB_THERM_SHDN;
+	if (batt_sts & CHGR_BATT_RT_STS_JEITA_COLD_MASK)
+		val |= PM8550B_TEMP_STS_JEITA_COLD;
+	if (batt_sts & CHGR_BATT_RT_STS_JEITA_HOT_MASK)
+		val |= PM8550B_TEMP_STS_JEITA_HOT;
+
+	return val;
+}
+
+/*
+ * Combined temperature status as a single decimal bitmask, see
+ * PM8550B_TEMP_STS_*. Live flags are in bits 7:0 and latched flags in bits
+ * 15:8; the latched copy holds the state from the last time charging
+ * stopped, until it is cleared through CHG_LT_CLR.
+ */
+static ssize_t charger_temp_status_show(struct device *dev, struct device_attribute *attr, char *buf)
+{
+	struct power_supply *psy = dev_get_drvdata(dev);
+	struct pm8550b_charger *chg = power_supply_get_drvdata(psy);
+	unsigned int qg_sts, chg_rt, chg_lt, temp_rt, temp_lt, batt_rt, batt_lt;
+	unsigned int val;
+	u32 base;
+	int ret;
+
+	if (!chg->regmap)
+		return 0;
+
+	base = chg->base[BASE_CHG1];
+
+	ret = regmap_read(chg->regmap, base + CHGR_QG_CHG_STS_ADDR, &qg_sts);
+	if (!ret)
+		ret = regmap_read(chg->regmap, base + CHGR_CHG_RT_STS, &chg_rt);
+	if (!ret)
+		ret = regmap_read(chg->regmap, base + CHGR_CHG_LT_STS, &chg_lt);
+	if (!ret)
+		ret = regmap_read(chg->regmap, base + CHGR_TEMP_RT_STS, &temp_rt);
+	if (!ret)
+		ret = regmap_read(chg->regmap, base + CHGR_TEMP_LT_STS, &temp_lt);
+	if (!ret)
+		ret = regmap_read(chg->regmap, base + CHGR_BATT_RT_STS, &batt_rt);
+	if (!ret)
+		ret = regmap_read(chg->regmap, base + CHGR_BATT_LT_STS, &batt_lt);
+	if (ret)
+		return ret;
+
+	val = pm8550b_temp_sts_pack(chg_rt, temp_rt, batt_rt);
+	val |= pm8550b_temp_sts_pack(chg_lt, temp_lt, batt_lt) << PM8550B_TEMP_STS_LATCHED_SHIFT;
+
+	/* Warm/cool zone has no latched copy */
+	if (qg_sts & CHGR_QG_CHG_STS_JEITA_WARM_COOL_MASK)
+		val |= PM8550B_TEMP_STS_JEITA_WARM_COOL;
+
+	return sysfs_emit(buf, "%u\n", val);
+}
+
 static ssize_t ship_mode_store(struct device *dev, struct device_attribute *attr, const char *buf, size_t count)
 {
 	struct power_supply *psy = dev_get_drvdata(dev);
@@ -888,6 +965,7 @@ static DEVICE_ATTR_WO(qph2_resume);
 static DEVICE_ATTR_RO(qph2);
 static DEVICE_ATTR_WO(ship_mode);
 static DEVICE_ATTR_RO(charger_status);
+static DEVICE_ATTR_RO(charger_temp_status);
 
 static struct attribute *pm8550b_battery_attrs[] = {
 	&dev_attr_aicl_status.attr,
@@ -902,6 +980,7 @@ static struct attribute *pm8550b_battery_attrs[] = {
 	&dev_attr_qph2.attr,
 	&dev_attr_ship_mode.attr,
 	&dev_attr_charger_status.attr,
+	&dev_attr_charger_temp_status.attr,
 	NULL,
 };
 ATTRIBUTE_GROUPS(pm8550b_battery);

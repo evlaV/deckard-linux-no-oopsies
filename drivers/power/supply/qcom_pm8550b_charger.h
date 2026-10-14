@@ -9,7 +9,45 @@
 #define CHGR_CHARGER_STATUS_MASK GENMASK(2, 0)
 #define CHGR_CHARGER_STATUS_VALID_POWER_MASK BIT(7)
 
+#define CHGR_VBAT_STATUS_ADDR (0x08)
+#define CHGR_VBAT_STATUS_VBATT_LT_2V_MASK BIT(0) /* VBATT < 2V, trickle charge threshold */
+#define CHGR_VBAT_STATUS_VBATT_GT_FULL_ON_MASK BIT(1) /* VBATT > VSYS_MIN, fast charge threshold */
+#define CHGR_VBAT_STATUS_VBATT_GTET_INHIBIT_MASK BIT(2) /* VBAT (VADC) above inhibit threshold */
+#define CHGR_VBAT_STATUS_VBATT_LTET_RECHARGE_MASK BIT(3) /* VBATT below recharge threshold */
+#define CHGR_VBAT_STATUS_TAPER_REGION_MASK BIT(4) /* Charger in taper region (CV) */
+#define CHGR_VBAT_STATUS_DROP_IN_BATT_VOLT_REF_MASK BIT(5) /* VBATT below float voltage during taper */
+#define CHGR_VBAT_STATUS_GF_BATT_OV_MASK BIT(7) /* Deglitched BATT_OV */
+
+#define CHGR_VBAT_STATUS2_ADDR (0x09)
+#define CHGR_VBAT_STATUS2_PRE_FULLON_MASK BIT(1) /* Analog comparator, VBATT > VSYS_MIN */
+#define CHGR_VBAT_STATUS2_PRE_INHIBIT_MASK BIT(3) /* VADC comparator, VBAT > inhibit threshold */
+#define CHGR_VBAT_STATUS2_TAPER_MASK BIT(5) /* Error amp output, VFLT reference vs. VBATT */
+#define CHGR_VBAT_STATUS2_PRE_OVRV_MASK BIT(7) /* Analog comparator, VBAT > VBAT_OV threshold */
+
+#define CHGR_IBAT_STATUS_ADDR (0x0A)
+#define CHGR_IBAT_STATUS_ZERO_CHARGE_CURRENT_MASK BIT(0) /* Charge current reached zero */
+#define CHGR_IBAT_STATUS_FORCE_ZERO_CHARGE_CURRENT_MASK BIT(1) /* Ramped to zero by input suspend/swap */
+#define CHGR_IBAT_STATUS_PRE_TERM_MASK BIT(2) /* Charge current < termination */
+#define CHGR_IBAT_STATUS_ICL_INCR_REQ_FOR_PRECHG_MASK BIT(7) /* ICL increment request during precharge */
+
+/*
+ * Final float voltage sent to analog, after JEITA. Codes 0..118.
+ *   1S: 3.60V + code * 10mV, 2S: 7.20V + code * 20mV
+ */
 #define CHGR_VFLT_STATUS_ADDR (0x0B)
+#define CHGR_VFLT_STATUS_FLOAT_VOLTAGE_MASK GENMASK(7, 0)
+#define CHGR_VFLT_STATUS_FLOAT_VOLTAGE_MAX (118)
+#define CHGR_VFLT_STATUS_1S_TO_UV(code) (3600000 + (code) * 10000)
+#define CHGR_VFLT_STATUS_2S_TO_UV(code) (7200000 + (code) * 20000)
+
+#define CHGR_ADC_BATT_COMP_ADDR (0x0D)
+#define CHGR_ADC_BATT_COMP_VBATT_LOW_BST_UVLO_MASK BIT(0) /* ADC_VBATT below LOW_BATT_BST_UVLO_THRESHOLD */
+#define CHGR_ADC_BATT_COMP_VBATT_LOW_SYSOK_MASK BIT(1) /* ADC_VBATT below LOW_BATT_SYSOK_THRESHOLD */
+#define CHGR_ADC_BATT_COMP_VBATT_GT_INHIBIT_MASK BIT(2) /* ADC_VBATT above CHARGE_INHIBIT_THRESHOLD */
+#define CHGR_ADC_BATT_COMP_VBATT_LT_RCHG_MASK BIT(3) /* ADC_VBATT below recharge ADC threshold */
+#define CHGR_ADC_BATT_COMP_IBATT_LT_TERM_MASK BIT(4) /* ADC IBATT within ITERM window */
+#define CHGR_ADC_BATT_COMP_IBATT_BSM_DIG_TERM_MASK BIT(5) /* ADC IBATT below BSM_DIG_TERM_THRESHOLD */
+
 #define CHGR_ICHG_STATUS_ADDR (0x0E)
 
 #define CHGR_CHG_EN_ADDR (0x46)
@@ -57,7 +95,13 @@
 #define CHGR_WD_CFG_BITE_WDOG_TIMER_EN_ON_PLUGIN BIT(1)
 #define CHGR_WD_CFG_BITE_WDOG_TIMER_EN BIT(0)
 
+/*
+ * *_RT_STS registers report live status. Each *_LT_STS register uses the same
+ * bit layout as its *_RT_STS register, latches when MAIN_CHG_OK or
+ * INPUT_SS_DONE goes low, and is cleared by writing 1 to CHG_LT_CLR (0xAF).
+ */
 #define CHGR_CHG_RT_STS (0xB0)
+#define CHGR_CHG_LT_STS (0xB1)
 #define CHGR_CHG_CHG_STS_INPUT_OK_MASK BIT(0)
 #define CHGR_CHG_CHG_STS_BUCK_OK_MASK BIT(1)
 #define CHGR_CHG_CHG_STS_TEMP_OK_MASK BIT(2)
@@ -65,22 +109,37 @@
 #define CHGR_CHG_CHG_STS_CHG_CTRL_OK_MASK BIT(7)
 
 #define CHGR_USB_RT_STS (0xB2)
+#define CHGR_USB_LT_STS (0xB3)
 #define CHGR_USB_RT_STS_USB_UV_MASK BIT(0)
 #define CHGR_USB_RT_STS_USB_OV_MASK BIT(1)
 #define CHGR_USB_RT_STS_USB_SUSPEND_MASK BIT(2)
 #define CHGR_USB_RT_STS_IMP_TRIGGER_MASK BIT(3)
+#define CHGR_USB_RT_STS_INPUT_SWAP_MASK BIT(4)
 
 #define CHGR_BUCK_RT_STS (0xB6)
+#define CHGR_BUCK_LT_STS (0xB7)
 #define CHGR_BUCK_RT_STS_SS_NOT_DONE_MASK BIT(0)
+#define CHGR_BUCK_RT_STS_CFLY_HARD_FAULT_MASK BIT(1)
 #define CHGR_BUCK_RT_STS_OC_MASK BIT(2)
-#define CHGR_BUCK_RT_STS_VPH_UV_MASK BIT(3)
+#define CHGR_BUCK_RT_STS_VPH_OV_MASK BIT(3)
+#define CHGR_BUCK_RT_STS_REV_BOOST_ON_MASK BIT(7)
 
 #define CHGR_TEMP_RT_STS (0xB8)
-#define CHGR_TEMP_RT_STS_CHGR_TEMP_MASK BIT(0)
+#define CHGR_TEMP_LT_STS (0xB9)
+#define CHGR_TEMP_RT_STS_CHGR_TEMP_MASK BIT(0) /* CHG_TEMP reached shutdown threshold */
+#define CHGR_TEMP_RT_STS_SMB_TEMP_MASK BIT(1) /* SMB_TEMP reached shutdown threshold */
+#define CHGR_TEMP_RT_STS_WLS_THERM_MASK BIT(2) /* WLS_THERM reached shutdown threshold */
+#define CHGR_TEMP_RT_STS_USB_THERM_MASK BIT(3) /* USB_THERM reached shutdown threshold */
 
 #define CHGR_BATT_RT_STS (0xBA)
+#define CHGR_BATT_LT_STS (0xBB)
 #define CHGR_BATT_RT_STS_JEITA_COLD_MASK BIT(0)
 #define CHGR_BATT_RT_STS_JEITA_HOT_MASK BIT(1)
+#define CHGR_BATT_RT_STS_BAT_MISSING_MASK BIT(2)
+#define CHGR_BATT_RT_STS_VBAT_LT_VSYS_MIN_MASK BIT(4)
+#define CHGR_BATT_RT_STS_VBAT_OV_ANA_MASK BIT(5)
+#define CHGR_BATT_RT_STS_VBAT_OV_ADC_MASK BIT(6)
+#define CHGR_BATT_RT_STS_IBAT_OC_ADC_MASK BIT(7)
 
 #define CHGR2_INT_RT_STS (0x10)
 #define CHGR2_INT_CHG_PATH_STS_MASK BIT(0)
@@ -140,6 +199,28 @@
 #define BATIF_JEITA_COLD_AFP_LSB (0x8F)
 
 #define BATIF_SHIP_MODE (0x52)
+
+/*
+ * charger_temp_status sysfs bitmask. Live (RT_STS) flags are in bits 7:0;
+ * the same flags latched (LT_STS) are shifted up by 8. JEITA warm/cool has
+ * no latched copy, so bit 15 is always 0.
+ */
+#define PM8550B_TEMP_STS_TEMP_OK BIT(0)
+#define PM8550B_TEMP_STS_CHG_TEMP_SHDN BIT(1)
+#define PM8550B_TEMP_STS_SMB_TEMP_SHDN BIT(2)
+#define PM8550B_TEMP_STS_WLS_THERM_SHDN BIT(3)
+#define PM8550B_TEMP_STS_USB_THERM_SHDN BIT(4)
+#define PM8550B_TEMP_STS_JEITA_COLD BIT(5)
+#define PM8550B_TEMP_STS_JEITA_HOT BIT(6)
+#define PM8550B_TEMP_STS_JEITA_WARM_COOL BIT(7)
+#define PM8550B_TEMP_STS_LATCHED_SHIFT (8)
+
+/* DCDC peripheral (0x27xx); there is no chg->base[] entry for it yet */
+#define DCDC_CFLY_STATUS (0x69)
+#define DCDC_CFLY_STATUS_SS_DONE_MASK BIT(0) /* CFLY soft start completed */
+#define DCDC_CFLY_STATUS_SS_DONE_OTG_MASK BIT(1) /* CFLY OTG fault, status only */
+#define DCDC_CFLY_STATUS_SOFT_FAULT_MASK BIT(2) /* Cfly ~1V from 1/2 VMID, status only */
+#define DCDC_CFLY_STATUS_HARD_FAULT_MASK BIT(3) /* Cfly > 2V from 1/2 VMID, hiccup if enabled */
 
 // TODO Revisit Force Pulse Skip Mode
 
