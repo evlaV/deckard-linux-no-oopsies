@@ -187,6 +187,26 @@ static int pm8550b_charger_get_charge_current_max(struct pm8550b_charger *chg)
 	return (reg * CHGR_ICHG_CFG_MA_PER_UNIT * 1000);
 }
 
+/**
+ * pm8550b_charger_update_jeita_cc_comp() - Track the WARM / COOL charge current to the FCC
+ * @chg: charger instance
+ * @fcc_ma: fast charge current in mA
+ *
+ * The JEITA WARM / COOL charge current is an offset below the fast charge current
+ * (JEITA CC = FCC - DATA x 50mA), so recompute the offset whenever the FCC changes
+ * to keep the reduced current at or below BATIF_JEITA_CC_COMP_TARGET_MA.
+ */
+static void pm8550b_charger_update_jeita_cc_comp(struct pm8550b_charger *chg, unsigned int fcc_ma)
+{
+	unsigned int comp = 0;
+
+	if (fcc_ma > BATIF_JEITA_CC_COMP_TARGET_MA)
+		comp = DIV_ROUND_UP(fcc_ma - BATIF_JEITA_CC_COMP_TARGET_MA, BATIF_JEITA_CC_COMP_MA_PER_UNIT);
+
+	regmap_write(chg->regmap, chg->base[BASE_BATIF] + BATIF_JEITA_CC_WARM, min(comp, 0xFFU));
+	regmap_write(chg->regmap, chg->base[BASE_BATIF] + BATIF_JEITA_CC_COOL, min(comp, 0xFFU));
+}
+
 static int pm8550b_charger_set_charge_current(struct pm8550b_charger *chg, int val)
 {
 	unsigned int reg = 0;
@@ -200,6 +220,7 @@ static int pm8550b_charger_set_charge_current(struct pm8550b_charger *chg, int v
 	reg = (val / 1000) / CHGR_ICHG_CFG_MA_PER_UNIT;
 	regmap_update_bits_check(chg->regmap, chg->base[BASE_CHG1] + CHGR_ICHG_CFG_ADDR, 0xFF, reg, &changed);
 	if (changed) {
+		pm8550b_charger_update_jeita_cc_comp(chg, reg * CHGR_ICHG_CFG_MA_PER_UNIT);
 		power_supply_changed(chg->psy);
 	}
 
@@ -237,6 +258,27 @@ static int pm8550b_charger_get_float_voltage_max(void)
 	return (CHGR_VFLT_CFG_MV_MAX * 1000);
 }
 
+/**
+ * pm8550b_charger_update_jeita_fv_comp() - Track the WARM / COOL float voltage to the FV
+ * @chg: charger instance
+ * @fv_mv: float voltage in mV
+ *
+ * The JEITA float voltage is an offset below the float voltage
+ * (JEITA FV = FV - DATA x 10mV), so recompute the offsets whenever the FV changes.
+ * The WARM zone is kept at or below BATIF_JEITA_FV_WARM_TARGET_MV; the COOL zone
+ * follows the float voltage.
+ */
+static void pm8550b_charger_update_jeita_fv_comp(struct pm8550b_charger *chg, unsigned int fv_mv)
+{
+	unsigned int warm = 0;
+
+	if (fv_mv > BATIF_JEITA_FV_WARM_TARGET_MV)
+		warm = DIV_ROUND_UP(fv_mv - BATIF_JEITA_FV_WARM_TARGET_MV, BATIF_JEITA_FV_COMP_MV_PER_UNIT);
+
+	regmap_write(chg->regmap, chg->base[BASE_BATIF] + BATIF_JEITA_FV_WARM, min(warm, 0xFFU));
+	regmap_write(chg->regmap, chg->base[BASE_BATIF] + BATIF_JEITA_FV_COOL, 0);
+}
+
 static int pm8550b_charger_set_float_voltage(struct pm8550b_charger *chg, int val)
 {
 	unsigned int reg = 0;
@@ -255,6 +297,7 @@ static int pm8550b_charger_set_float_voltage(struct pm8550b_charger *chg, int va
 	reg = (val / 1000 - CHGR_VFLT_CFG_MV_OFFSET) / CHGR_VFLT_CFG_MV_PER_UNIT;
 	regmap_update_bits_check(chg->regmap, chg->base[BASE_CHG1] + CHGR_VFLT_CFG_ADDR, 0xFF, reg, &changed);
 	if (changed) {
+		pm8550b_charger_update_jeita_fv_comp(chg, reg * CHGR_VFLT_CFG_MV_PER_UNIT + CHGR_VFLT_CFG_MV_OFFSET);
 		power_supply_changed(chg->psy);
 	}
 
@@ -928,6 +971,64 @@ static ssize_t charger_temp_status_show(struct device *dev, struct device_attrib
 	return sysfs_emit(buf, "%u\n", val);
 }
 
+/*
+ * Too warm / too cold for full charging (JEITA WARM / COOL compensation) as a
+ * PM8550B_JEITA_COMP_* bitmask. The HOT / COLD hard limits and AFP are not
+ * exposed and stay enabled.
+ */
+static ssize_t jeita_comp_show(struct device *dev, struct device_attribute *attr, char *buf)
+{
+	struct power_supply *psy = dev_get_drvdata(dev);
+	struct pm8550b_charger *chg = power_supply_get_drvdata(psy);
+	unsigned int reg, val = 0;
+	int ret;
+
+	if (!chg->regmap)
+		return 0;
+
+	ret = regmap_read(chg->regmap, chg->base[BASE_BATIF] + BATIF_JEITA_EN, &reg);
+	if (ret)
+		return ret;
+
+	if ((reg & BATIF_JEITA_EN_COOL_COMP) == BATIF_JEITA_EN_COOL_COMP)
+		val |= PM8550B_JEITA_COMP_COOL;
+	if ((reg & BATIF_JEITA_EN_WARM_COMP) == BATIF_JEITA_EN_WARM_COMP)
+		val |= PM8550B_JEITA_COMP_WARM;
+
+	return sysfs_emit(buf, "%u\n", val);
+}
+
+static ssize_t jeita_comp_store(struct device *dev, struct device_attribute *attr, const char *buf, size_t count)
+{
+	struct power_supply *psy = dev_get_drvdata(dev);
+	struct pm8550b_charger *chg = power_supply_get_drvdata(psy);
+	unsigned int val, reg = 0;
+	int ret;
+
+	if (!chg->regmap)
+		return 0;
+
+	ret = kstrtouint(buf, 0, &val);
+	if (ret)
+		return ret;
+
+	if (val & ~(PM8550B_JEITA_COMP_COOL | PM8550B_JEITA_COMP_WARM))
+		return -EINVAL;
+
+	if (val & PM8550B_JEITA_COMP_COOL)
+		reg |= BATIF_JEITA_EN_COOL_COMP;
+	if (val & PM8550B_JEITA_COMP_WARM)
+		reg |= BATIF_JEITA_EN_WARM_COMP;
+
+	/* Only touch the WARM / COOL compensation bits */
+	ret = regmap_update_bits(chg->regmap, chg->base[BASE_BATIF] + BATIF_JEITA_EN,
+				 BATIF_JEITA_EN_COOL_COMP | BATIF_JEITA_EN_WARM_COMP, reg);
+	if (ret)
+		return ret;
+
+	return count;
+}
+
 static ssize_t ship_mode_store(struct device *dev, struct device_attribute *attr, const char *buf, size_t count)
 {
 	struct power_supply *psy = dev_get_drvdata(dev);
@@ -966,6 +1067,7 @@ static DEVICE_ATTR_RO(qph2);
 static DEVICE_ATTR_WO(ship_mode);
 static DEVICE_ATTR_RO(charger_status);
 static DEVICE_ATTR_RO(charger_temp_status);
+static DEVICE_ATTR_RW(jeita_comp);
 
 static struct attribute *pm8550b_battery_attrs[] = {
 	&dev_attr_aicl_status.attr,
@@ -981,6 +1083,7 @@ static struct attribute *pm8550b_battery_attrs[] = {
 	&dev_attr_ship_mode.attr,
 	&dev_attr_charger_status.attr,
 	&dev_attr_charger_temp_status.attr,
+	&dev_attr_jeita_comp.attr,
 	NULL,
 };
 ATTRIBUTE_GROUPS(pm8550b_battery);
@@ -1141,64 +1244,88 @@ static irqreturn_t qcom_pm8550b_misc_isr(int irq, void *dev_id)
 
 static void qcom_pm8550b_charger_setup_jeita(struct pm8550b_charger *chg)
 {
-	// Nominal Charging Window is 5 to 45 C
-	// Extended Charging Window is 0 to 60 C. We limit this to 46, since the battery shouldn't get that hot.
-	// Discharging Window is -20 to 65 C
-	// In Extended Charging Window Current is limited to 0.2 C
-	// At High End,
+	// Battery spec:
+	//   Nominal Charging Window is 5 to 45 C
+	//   Extended Charging Window is 0 to 60 C, current is limited to 0.2 C
+	//   Discharging Window is -20 to 65 C
+	//
+	// Charging ranges:
+	//   temp < 0 C      : too cold to charge (PMIC COLD hard limit)
+	//   0 C to 5 C      : too cold for full charging (COOL)
+	//   5 C to 45 C     : full charging
+	//   45 C to 60 C    : too warm for full charging (WARM)
+	//   temp > 60 C     : too hot to charge (PMIC HOT hard limit)
+	//
+	// PMIC JEITA zones (HRD SCPQ_PK_BATIF_JEITA_*):
+	//   WARM / COOL zones        : FV and CC reduced by the *_COMP_WARM / *_COMP_COOL offsets, if enabled
+	//   temp > HOT, temp < COLD  : charging paused (hard limit, JEITA_EN_HOT_COLD_HARDLIMIT)
+	//   temp > HOT_AFP, < COLD_AFP : charger enters AFP mode (JEITA_EN_AFP_HOT / _COLD)
+	//
+	// WARM and COOL compensation are enabled by default. The user space daemon can turn either
+	// off through the jeita_comp sysfs entry, e.g. to follow the fuel gauge's prescribed
+	// charge current instead. The HOT / COLD hard limits and AFP are always enabled as a
+	// safety backstop and are not exposed.
 
+	// HRD: JEITA Float Voltage = Float Voltage - (DATA x 10mV)
 	// TODO Test this, because at 2S voltages are typically still 1S levels in PMIC
-	// 8.2 Volts is 700 mV below
-	regmap_write(chg->regmap, chg->base[BASE_BATIF] + BATIF_JEITA_FV_WARM, (8900 - 8200) / 10);
-	regmap_write(chg->regmap, chg->base[BASE_BATIF] + BATIF_JEITA_FV_COOL, 0);
-	// TODO These need to be dynamic based on FCC and are an offset from it
-	// TODO Verify the scaling here is really 50 mA and not 60 mA
-	regmap_write(chg->regmap, chg->base[BASE_BATIF] + BATIF_JEITA_CC_WARM, 43);
-	regmap_write(chg->regmap, chg->base[BASE_BATIF] + BATIF_JEITA_CC_COOL, 43);
+	// The offset is recomputed every time the float voltage is set, so the WARM float voltage
+	// stays <= 8.6 V (4.3 V per cell), e.g. 8.9 V -> 8.6 V, 8.8 V -> 8.6 V. COOL follows the
+	// float voltage.
+	pm8550b_charger_update_jeita_fv_comp(chg, pm8550b_charger_get_float_voltage(chg) / 1000);
+	// HRD: JEITA CC = Fast Charge Current - (DATA x 50mA)
+	// The offset is recomputed every time the fast charge current is set, so the WARM / COOL
+	// charge current stays <= 540 mA (0.2 C), e.g. 2.7 A -> 500 mA, 1 A -> 500 mA.
+	pm8550b_charger_update_jeita_cc_comp(chg, pm8550b_charger_get_charge_current(chg) / 1000);
 
 	// These are from Beta Equation with 100k thermistor, 100k pullup, Beta=4250, and Full Scale ADC of 0x4000
+	// code = Rt / (Rt + Rpu) x 0x4000, matching the HRD example (55 C = 0x0DAC)
 	// const u16 temp_p75 = 0x0751;
 	const u16 temp_p65 = 0x0A00;
-	// const u16 temp_p60 = 0x0BB2;
-	// const u16 temp_p50 = 0x0DAC;
-	const u16 temp_p46 = 0x1201;
+	const u16 temp_p60 = 0x0BB2;
+	// const u16 temp_p55 = 0x0DAC;
+	// const u16 temp_p50 = 0x0FF3;
+	// const u16 temp_p46 = 0x1201;
 	const u16 temp_p45 = 0x128C;
 	// const u16 temp_p44 = 0x131C;
 	// const u16 temp_p25 = 0x2000;
 	// const u16 temp_p10 = 0x2B8A;
 	// const u16 temp_p6  = 0x2E69;
 	const u16 temp_p5 = 0x2F19;
-	const u16 temp_p4 = 0x2FC6;
-	// const u16 temp_0   = 0x3257;
+	// const u16 temp_p4 = 0x2FC6;
+	const u16 temp_0 = 0x3257;
 	const u16 temp_n20 = 0x3B4B;
 
-	// Too Hot to Charge - 46 C
-	regmap_write(chg->regmap, chg->base[BASE_BATIF] + BATIF_JEITA_THOT_MSB, UPPER_8_BITS(temp_p46));
-	regmap_write(chg->regmap, chg->base[BASE_BATIF] + BATIF_JEITA_THOT_LSB, LOWER_8_BITS(temp_p46));
+	// Too Hot to Charge - 60 C, top of the battery's extended charging window
+	regmap_write(chg->regmap, chg->base[BASE_BATIF] + BATIF_JEITA_THOT_MSB, UPPER_8_BITS(temp_p60));
+	regmap_write(chg->regmap, chg->base[BASE_BATIF] + BATIF_JEITA_THOT_LSB, LOWER_8_BITS(temp_p60));
 
-	// Too Warm for Full Charging - 45 C
+	// Too Warm for Full Charging - 45 C, reduced FV/CC from here up to HOT
 	regmap_write(chg->regmap, chg->base[BASE_BATIF] + BATIF_JEITA_WARM_MSB, UPPER_8_BITS(temp_p45));
 	regmap_write(chg->regmap, chg->base[BASE_BATIF] + BATIF_JEITA_WARM_LSB, LOWER_8_BITS(temp_p45));
 
-	// Too Cool for Full Charging - 5 C
+	// Too Cool for Full Charging - 5 C, CC reduced by CC_COOL from here down to COLD
 	regmap_write(chg->regmap, chg->base[BASE_BATIF] + BATIF_JEITA_COOL_MSB, UPPER_8_BITS(temp_p5));
 	regmap_write(chg->regmap, chg->base[BASE_BATIF] + BATIF_JEITA_COOL_LSB, LOWER_8_BITS(temp_p5));
 
-	// Too Cold to Charge - 4 C
-	regmap_write(chg->regmap, chg->base[BASE_BATIF] + BATIF_JEITA_COLD_MSB, UPPER_8_BITS(temp_p4));
-	regmap_write(chg->regmap, chg->base[BASE_BATIF] + BATIF_JEITA_COLD_LSB, LOWER_8_BITS(temp_p4));
+	// Too Cold to Charge - 0 C, bottom of the battery's extended charging window
+	regmap_write(chg->regmap, chg->base[BASE_BATIF] + BATIF_JEITA_COLD_MSB, UPPER_8_BITS(temp_0));
+	regmap_write(chg->regmap, chg->base[BASE_BATIF] + BATIF_JEITA_COLD_LSB, LOWER_8_BITS(temp_0));
 
-	// Too Hot to Run - 65 C
+	// Too Hot to Run - 65 C, AFP mode
 	regmap_write(chg->regmap, chg->base[BASE_BATIF] + BATIF_JEITA_THOT_AFP_MSB, UPPER_8_BITS(temp_p65));
 	regmap_write(chg->regmap, chg->base[BASE_BATIF] + BATIF_JEITA_THOT_AFP_LSB, LOWER_8_BITS(temp_p65));
 
-	// Too Cold to Run - -20 C
+	// Too Cold to Run - -20 C, AFP mode
 	regmap_write(chg->regmap, chg->base[BASE_BATIF] + BATIF_JEITA_COLD_AFP_MSB, UPPER_8_BITS(temp_n20));
 	regmap_write(chg->regmap, chg->base[BASE_BATIF] + BATIF_JEITA_COLD_AFP_LSB, LOWER_8_BITS(temp_n20));
 
-	// Enable JEITA Window (Everything but Float Voltage Compenstation in Constant Voltage Mode)
-	// This is the same thing XBL sets up.
-	regmap_write(chg->regmap, chg->base[BASE_BATIF] + BATIF_JEITA_EN, 0xEF);
+	// Enable JEITA HOT/COLD hard limits, AFP HOT/COLD, and WARM/COOL compensation
+	// 0xEF: bit 7 AFP HOT, bit 6 AFP COLD, bit 5 HOT/COLD hard limit,
+	//       bits 3:0 WARM/COOL FV and CC compensation (FV_COOL is 0, so COOL only reduces CC)
+	// Bit 4 (FV compensation in CV) is off. This is the same thing XBL sets up.
+	regmap_write(chg->regmap, chg->base[BASE_BATIF] + BATIF_JEITA_EN,
+		     BATIF_JEITA_EN_AFP_HOT | BATIF_JEITA_EN_AFP_COLD | BATIF_JEITA_EN_HOT_COLD_HARDLIMIT |
+		     BATIF_JEITA_EN_WARM_COMP | BATIF_JEITA_EN_COOL_COMP);
 }
 
 static int qcom_pm8550b_charger_probe(struct platform_device *pdev)
