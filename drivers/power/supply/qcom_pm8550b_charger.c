@@ -64,7 +64,9 @@ struct pm8550b_charger {
 	unsigned int qph1_charge_current_max;
 	unsigned int qph2_charge_current_max;
 
+	/* Result of the last AICL run, cleared by aicl_rerun and on power loss */
 	bool aicl_complete;
+	bool aicl_failed;
 
 	/* Last CHGR_CHARGER_STATUS read from the charger IRQ, exposed via sysfs */
 	u8 charger_status;
@@ -515,11 +517,38 @@ static ssize_t aicl_status_show(struct device *dev, struct device_attribute *att
 	struct power_supply *psy = dev_get_drvdata(dev);
 	struct pm8550b_charger *chg = power_supply_get_drvdata(psy);
 
-	// NOTE This should work, but the Hardware clears it, so we cache the value from the interrupt
-	//unsigned int reg = 0;
-	//regmap_read(chg->regmap, chg->base[BASE_MISC] + MISC_AICL_STATUS, &reg);
+	// MISC_AICL_STATUS bits are level signals and drop again (e.g. when AICL reruns), so
+	// report the result cached from the AICL_DONE / AICL_FAIL interrupts. See aicl_state
+	// for the live register.
+	return sysfs_emit(buf, "%d\n", READ_ONCE(chg->aicl_complete));
+}
 
-	return sysfs_emit(buf, "%d\n", chg->aicl_complete);
+/*
+ * AICL state as a single decimal bitmask: live MISC_AICL_STATUS in bits 6:0,
+ * plus the cached PM8550B_AICL_STATE_DONE / _FAILED result of the last run.
+ */
+static ssize_t aicl_state_show(struct device *dev, struct device_attribute *attr, char *buf)
+{
+	struct power_supply *psy = dev_get_drvdata(dev);
+	struct pm8550b_charger *chg = power_supply_get_drvdata(psy);
+	unsigned int reg = 0;
+	unsigned int val;
+	int ret;
+
+	if (!chg->regmap)
+		return 0;
+
+	ret = regmap_read(chg->regmap, chg->base[BASE_MISC] + MISC_AICL_STATUS, &reg);
+	if (ret)
+		return ret;
+
+	val = reg & MISC_AICL_STATUS_LIVE_MASK;
+	if (READ_ONCE(chg->aicl_complete))
+		val |= PM8550B_AICL_STATE_DONE;
+	if (READ_ONCE(chg->aicl_failed))
+		val |= PM8550B_AICL_STATE_FAILED;
+
+	return sysfs_emit(buf, "%u\n", val);
 }
 
 static ssize_t aicl_enable_show(struct device *dev, struct device_attribute *attr, char *buf)
@@ -575,8 +604,15 @@ static ssize_t aicl_rerun_store(struct device *dev, struct device_attribute *att
 		return ret;
 	}
 
-	if (rerun)
+	if (rerun) {
+		// Forget the previous result so a stale DONE isn't reported for this run
+		WRITE_ONCE(chg->aicl_complete, false);
+		WRITE_ONCE(chg->aicl_failed, false);
+
 		regmap_write(chg->regmap, chg->base[BASE_MISC] + MISC_AICL_CMD, MISC_AICL_RESTART_MASK);
+
+		sysfs_notify(&chg->psy->dev.kobj, NULL, "aicl_status");
+	}
 
 	return count;
 }
@@ -1055,6 +1091,7 @@ static ssize_t ship_mode_store(struct device *dev, struct device_attribute *attr
 // auto recharge enabled?
 
 static DEVICE_ATTR_RO(aicl_status);
+static DEVICE_ATTR_RO(aicl_state);
 static DEVICE_ATTR_RW(aicl_enable);
 static DEVICE_ATTR_WO(aicl_rerun);
 static DEVICE_ATTR_RW(charging_pause);
@@ -1071,6 +1108,7 @@ static DEVICE_ATTR_RW(jeita_comp);
 
 static struct attribute *pm8550b_battery_attrs[] = {
 	&dev_attr_aicl_status.attr,
+	&dev_attr_aicl_state.attr,
 	&dev_attr_aicl_enable.attr,
 	&dev_attr_aicl_rerun.attr,
 	&dev_attr_charging_pause.attr,
@@ -1160,7 +1198,8 @@ static irqreturn_t qcom_pm8550b_charger_isr(int irq, void *dev_id)
 
 		if (!(reg & CHGR_CHARGER_STATUS_VALID_POWER_MASK)) {
 			// If power is disconnected, clear AICL... Best I have got at the moment
-			chg->aicl_complete = false;
+			WRITE_ONCE(chg->aicl_complete, false);
+			WRITE_ONCE(chg->aicl_failed, false);
 		}
 
 		power_supply_changed(chg->psy);
@@ -1224,14 +1263,19 @@ static irqreturn_t qcom_pm8550b_misc_isr(int irq, void *dev_id)
 
 	switch (irq_data->virq) {
 	case PM8550B_MISC_AICL_FAIL_IRQ:
-		// TODO We care about this, but not sure how to handle it...
-		dev_dbg(&chg->psy->dev, "AICL failed\n");
+		// ICL reached 50mA and USB input is still collapsed. Cache the result like
+		// AICL_DONE, since the status register is a level signal.
+		WRITE_ONCE(chg->aicl_complete, false);
+		WRITE_ONCE(chg->aicl_failed, true);
+		dev_warn(&chg->psy->dev, "AICL failed, ICL collapsed to minimum\n");
 
+		sysfs_notify(&chg->psy->dev.kobj, NULL, dev_attr_aicl_status.attr.name);
 		break;
 	case PM8550B_MISC_AICL_DONE_IRQ:
 		// NOTE The register is fleeting and you cannot read it here and expect it to still be set.
 		// The Interrupt implies that it happened.
-		chg->aicl_complete = true;
+		WRITE_ONCE(chg->aicl_failed, false);
+		WRITE_ONCE(chg->aicl_complete, true);
 
 		sysfs_notify(&chg->psy->dev.kobj, NULL, dev_attr_aicl_status.attr.name);
 		break;
