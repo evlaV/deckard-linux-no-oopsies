@@ -65,7 +65,7 @@
 #define CHGR_VFLT_CFG_ADDR (0x58)
 #define CHGR_VFLT_CFG_MV_PER_UNIT (20)
 #define CHGR_VFLT_CFG_MV_OFFSET (7200)
-// This is artificially limited for Deckard for Safety
+// This is artificially limited for safety on this battery
 #define CHGR_VFLT_CFG_MV_MAX (8900)
 
 #define CHGR_TERM_CFG_ADDR (0x60)
@@ -181,6 +181,30 @@
 #define MISC_AICL_RERUN_TIME_ENABLE_MASK GENMASK(5, 4)
 
 #define BATIF_JEITA_EN (0x7F)
+#define BATIF_JEITA_EN_COOL_CC_COMP BIT(0)
+#define BATIF_JEITA_EN_WARM_CC_COMP BIT(1)
+#define BATIF_JEITA_EN_COOL_FV_COMP BIT(2)
+#define BATIF_JEITA_EN_WARM_FV_COMP BIT(3)
+#define BATIF_JEITA_EN_FV_COMP_IN_CV BIT(4)
+#define BATIF_JEITA_EN_HOT_COLD_HARDLIMIT BIT(5)
+#define BATIF_JEITA_EN_AFP_COLD BIT(6)
+#define BATIF_JEITA_EN_AFP_HOT BIT(7)
+#define BATIF_JEITA_EN_COOL_COMP (BATIF_JEITA_EN_COOL_CC_COMP | BATIF_JEITA_EN_COOL_FV_COMP)
+#define BATIF_JEITA_EN_WARM_COMP (BATIF_JEITA_EN_WARM_CC_COMP | BATIF_JEITA_EN_WARM_FV_COMP)
+
+/* JEITA CC = Fast Charge Current - (DATA x 50mA) */
+#define BATIF_JEITA_CC_COMP_MA_PER_UNIT (50)
+/* Charge current in the WARM / COOL zones is kept at or below 0.2 C */
+#define BATIF_JEITA_CC_COMP_TARGET_MA (540)
+
+/* JEITA Float Voltage = Float Voltage - (DATA x 10mV) */
+#define BATIF_JEITA_FV_COMP_MV_PER_UNIT (10)
+/* Float voltage in the WARM zone is kept at or below 4.3 V per cell (2S) */
+#define BATIF_JEITA_FV_WARM_TARGET_MV (4300 * 2)
+
+/* jeita_comp sysfs bitmask, too cold / too warm for full charging */
+#define PM8550B_JEITA_COMP_COOL BIT(0)
+#define PM8550B_JEITA_COMP_WARM BIT(1)
 #define BATIF_JEITA_FV_WARM (0x80)
 #define BATIF_JEITA_FV_COOL (0x81)
 #define BATIF_JEITA_CC_WARM (0x82)
