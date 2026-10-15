@@ -29,6 +29,8 @@
 		mode-bootloader = <0x02>;
 		mode-edl = <0x03>;
 		mode-fastboot = <0x04>;
+		mode-usb = <0x05>;
+		mode-initrd = <0x06>;
 	};
 };
 
