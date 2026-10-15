@@ -24,6 +24,14 @@ variables:
         sed -i -e "s@^[[:space:]]*\(source\|\.\)[[:space:]].*kernel_common\.pkgbuild.*\$@source ../linux-${KVER}-deckard/kernel_common.pkgbuild@" "holo/deckard/${PKG}/PKGBUILD"
         grep -qx "source ../linux-${KVER}-deckard/kernel_common.pkgbuild" "holo/deckard/${PKG}/PKGBUILD" || { echo "ERROR: ${PKG} does not source kernel_common.pkgbuild" >&2; exit 1; }
       done
+    # holo fetches from the public proxy, which only carries publicly-released commits; the commit under test
+    # usually isn't there yet, so clone from this (private) repository instead
+    - |
+      for PKG in linux-${KVER}-deckard linux-api-headers linux-tools; do
+        sed -i -e "s@/deckard/deckardos/linux-valve-publicly-released-branches\.git#@/deckard/deckardos/linux-valve.git#@" "holo/deckard/${PKG}/PKGBUILD"
+        ! grep -q "linux-valve-publicly-released-branches" "holo/deckard/${PKG}/PKGBUILD" || { echo "ERROR: ${PKG} still sources linux-valve-publicly-released-branches" >&2; exit 1; }
+        grep -q "git+https://gitlab.steamos.cloud/deckard/deckardos/linux-valve\.git#commit=\$_commit" "holo/deckard/${PKG}/PKGBUILD" || { echo "ERROR: ${PKG} does not source linux-valve.git" >&2; exit 1; }
+      done
     - ulimit -c 0
     - sudo pacman -Syy
     # Install packages built by the jobs we `need`, so that we build against them rather than the published ones.
