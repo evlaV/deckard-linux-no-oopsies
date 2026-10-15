@@ -1286,6 +1286,156 @@ static irqreturn_t qcom_pm8550b_misc_isr(int irq, void *dev_id)
 	return IRQ_HANDLED;
 }
 
+/**
+ * struct pm8550b_sts_bit - Human readable name for a charger status bit
+ * @mask: bit mask within the 8-bit register
+ * @name: short name used in the log
+ */
+struct pm8550b_sts_bit {
+	u8 mask;
+	const char *name;
+};
+
+/* CHG_*_STS bits are "OK" flags, so they are decoded inverted below */
+static const struct pm8550b_sts_bit pm8550b_chg_sts_bits[] = {
+	{ CHGR_CHG_CHG_STS_INPUT_OK_MASK, "input not OK" },
+	{ CHGR_CHG_CHG_STS_BUCK_OK_MASK, "buck not OK" },
+	{ CHGR_CHG_CHG_STS_TEMP_OK_MASK, "temp not OK" },
+	{ CHGR_CHG_CHG_STS_BATT_OK_MASK, "batt not OK" },
+	{ CHGR_CHG_CHG_STS_CHG_CTRL_OK_MASK, "chg ctrl not OK" },
+};
+
+static const struct pm8550b_sts_bit pm8550b_usb_sts_bits[] = {
+	{ CHGR_USB_RT_STS_USB_UV_MASK, "USB UV" },
+	{ CHGR_USB_RT_STS_USB_OV_MASK, "USB OV" },
+	{ CHGR_USB_RT_STS_USB_SUSPEND_MASK, "USB suspend" },
+	{ CHGR_USB_RT_STS_IMP_TRIGGER_MASK, "input missing poller" },
+	{ CHGR_USB_RT_STS_INPUT_SWAP_MASK, "input swap" },
+};
+
+static const struct pm8550b_sts_bit pm8550b_buck_sts_bits[] = {
+	{ CHGR_BUCK_RT_STS_SS_NOT_DONE_MASK, "soft start not done" },
+	{ CHGR_BUCK_RT_STS_CFLY_HARD_FAULT_MASK, "CFLY hard fault" },
+	{ CHGR_BUCK_RT_STS_OC_MASK, "buck OC (VPH UV)" },
+	{ CHGR_BUCK_RT_STS_VPH_OV_MASK, "VPH OV" },
+	{ CHGR_BUCK_RT_STS_REV_BOOST_ON_MASK, "reverse boost on" },
+};
+
+static const struct pm8550b_sts_bit pm8550b_temp_sts_bits[] = {
+	{ CHGR_TEMP_RT_STS_CHGR_TEMP_MASK, "CHG temp shutdown" },
+	{ CHGR_TEMP_RT_STS_SMB_TEMP_MASK, "SMB temp shutdown" },
+	{ CHGR_TEMP_RT_STS_WLS_THERM_MASK, "WLS therm shutdown" },
+	{ CHGR_TEMP_RT_STS_USB_THERM_MASK, "USB therm shutdown" },
+};
+
+static const struct pm8550b_sts_bit pm8550b_batt_sts_bits[] = {
+	{ CHGR_BATT_RT_STS_JEITA_COLD_MASK, "JEITA cold" },
+	{ CHGR_BATT_RT_STS_JEITA_HOT_MASK, "JEITA hot" },
+	{ CHGR_BATT_RT_STS_BAT_MISSING_MASK, "battery missing" },
+	{ CHGR_BATT_RT_STS_VBAT_LT_VSYS_MIN_MASK, "VBAT < VSYS_MIN" },
+	{ CHGR_BATT_RT_STS_VBAT_OV_ANA_MASK, "VBAT OV (analog)" },
+	{ CHGR_BATT_RT_STS_VBAT_OV_ADC_MASK, "VBAT OV (ADC)" },
+	{ CHGR_BATT_RT_STS_IBAT_OC_ADC_MASK, "IBAT OC (ADC)" },
+};
+
+/**
+ * pm8550b_decode_sts() - Format the set bits of a charger status register as names
+ * @buf: output buffer
+ * @len: size of @buf
+ * @val: register value
+ * @bits: bit descriptions
+ * @n: number of entries in @bits
+ *
+ * Bits not listed in @bits are appended as a raw mask so nothing is hidden.
+ */
+static void pm8550b_decode_sts(char *buf, size_t len, unsigned int val,
+			       const struct pm8550b_sts_bit *bits, size_t n)
+{
+	unsigned int known = 0;
+	int pos = 0;
+	size_t i;
+
+	for (i = 0; i < n; i++) {
+		known |= bits[i].mask;
+		if (val & bits[i].mask)
+			pos += scnprintf(buf + pos, len - pos, "%s%s", pos ? ", " : "", bits[i].name);
+	}
+
+	if (val & ~known & 0xFF)
+		pos += scnprintf(buf + pos, len - pos, "%sother=0x%02x", pos ? ", " : "", val & ~known & 0xFF);
+
+	if (!pos)
+		scnprintf(buf, len, "none");
+}
+
+/**
+ * pm8550b_charger_log_latched_status() - Log and clear the charger LT_STS latches at probe
+ * @chg: charger instance
+ *
+ * The *_LT_STS registers latch the charger status when MAIN_CHG_OK or
+ * INPUT_SS_DONE goes low and hold it until cleared. Log them before the driver
+ * reconfigures the charger, so a charging dropout in the previous session (VBAT
+ * OV, buck OC, CFLY hard fault, USB UV/OV, ...) can be seen after a reboot, then
+ * clear them so the next boot only shows the next session. The latches do not
+ * survive the PMIC itself losing power.
+ *
+ * Note a normal unplug also latches (e.g. USB UV), so read these together with
+ * the RT values and the session's logs.
+ */
+static void pm8550b_charger_log_latched_status(struct pm8550b_charger *chg)
+{
+	static const struct {
+		const char *name;
+		u16 rt;
+		u16 lt;
+		const struct pm8550b_sts_bit *bits;
+		size_t n;
+		bool ok_flags;
+	} regs[] = {
+		{ "CHG ", CHGR_CHG_RT_STS, CHGR_CHG_LT_STS, pm8550b_chg_sts_bits,
+		  ARRAY_SIZE(pm8550b_chg_sts_bits), true },
+		{ "USB ", CHGR_USB_RT_STS, CHGR_USB_LT_STS, pm8550b_usb_sts_bits,
+		  ARRAY_SIZE(pm8550b_usb_sts_bits), false },
+		{ "BUCK", CHGR_BUCK_RT_STS, CHGR_BUCK_LT_STS, pm8550b_buck_sts_bits,
+		  ARRAY_SIZE(pm8550b_buck_sts_bits), false },
+		{ "TEMP", CHGR_TEMP_RT_STS, CHGR_TEMP_LT_STS, pm8550b_temp_sts_bits,
+		  ARRAY_SIZE(pm8550b_temp_sts_bits), false },
+		{ "BATT", CHGR_BATT_RT_STS, CHGR_BATT_LT_STS, pm8550b_batt_sts_bits,
+		  ARRAY_SIZE(pm8550b_batt_sts_bits), false },
+	};
+	u32 base = chg->base[BASE_CHG1];
+	unsigned int status = 0, rt, lt, ok_mask;
+	char decoded[160];
+	size_t i, j;
+	int ret;
+
+	regmap_read(chg->regmap, base + CHGR_CHARGER_STATUS_ADDR, &status);
+	dev_warn(chg->dev, "Charger latched status at probe (charger status 0x%02x %s):\n",
+		 status, pm8550b_charger_status_str(status & CHGR_CHARGER_STATUS_MASK));
+
+	for (i = 0; i < ARRAY_SIZE(regs); i++) {
+		if (regmap_read(chg->regmap, base + regs[i].rt, &rt) ||
+		    regmap_read(chg->regmap, base + regs[i].lt, &lt)) {
+			dev_err(chg->dev, "  %s STS read failed\n", regs[i].name);
+			continue;
+		}
+
+		ok_mask = 0;
+		if (regs[i].ok_flags) {
+			for (j = 0; j < regs[i].n; j++)
+				ok_mask |= regs[i].bits[j].mask;
+		}
+
+		/* OK flags are decoded inverted, so a latched 0 shows up as "... not OK" */
+		pm8550b_decode_sts(decoded, sizeof(decoded), lt ^ ok_mask, regs[i].bits, regs[i].n);
+		dev_warn(chg->dev, "  %s LT 0x%02x (RT 0x%02x): %s\n", regs[i].name, lt, rt, decoded);
+	}
+
+	ret = regmap_write(chg->regmap, base + CHGR_CHG_LT_CLR, CHGR_CHG_LT_CLR_MASK);
+	if (ret)
+		dev_err(chg->dev, "CHG_LT_CLR failed (%d)\n", ret);
+}
+
 static void qcom_pm8550b_charger_setup_jeita(struct pm8550b_charger *chg)
 {
 	// Battery spec:
@@ -1405,6 +1555,9 @@ static int qcom_pm8550b_charger_probe(struct platform_device *pdev)
 	ret = of_property_read_u32_array(np, "reg", chg->base, BASE_COUNT);
 	if (ret)
 		return ret;
+
+	/* Log charging dropouts from the previous session before reconfiguring the charger */
+	pm8550b_charger_log_latched_status(chg);
 
 	ret = of_property_read_u32(np, "qph1-charge-current-max", &chg->qph1_charge_current_max);
 	if (ret) {

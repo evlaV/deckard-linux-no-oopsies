@@ -100,6 +100,9 @@
  * bit layout as its *_RT_STS register, latches when MAIN_CHG_OK or
  * INPUT_SS_DONE goes low, and is cleared by writing 1 to CHG_LT_CLR (0xAF).
  */
+#define CHGR_CHG_LT_CLR (0xAF)
+#define CHGR_CHG_LT_CLR_MASK BIT(0) /* Write 1 to clear all *_LT_STS registers */
+
 #define CHGR_CHG_RT_STS (0xB0)
 #define CHGR_CHG_LT_STS (0xB1)
 #define CHGR_CHG_CHG_STS_INPUT_OK_MASK BIT(0)
