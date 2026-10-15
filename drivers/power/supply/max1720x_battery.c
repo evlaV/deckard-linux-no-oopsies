@@ -143,6 +143,13 @@
 #define MAX17320_HPROTCFG2_DISS (1 << 1)
 #define MAX17320_HPROTCFG2_CHGS (1 << 0)
 
+/*
+ * prot_state sysfs bitmask: live ProtStatus in bits 15:0, plus the
+ * protection FET states from HProtCfg2.
+ */
+#define MAX17320_PROT_STATE_CHG_FET_ON (1 << 16)
+#define MAX17320_PROT_STATE_DIS_FET_ON (1 << 17)
+
 /* ProtStatus register bits for MAX17330 */
 #define MAX17330_PROTSTATUS_CHGWDT (1 << 15)
 #define MAX17330_PROTSTATUS_TOOHOTC (1 << 14)
@@ -1435,6 +1442,34 @@ static ssize_t max17320_protstat_show(struct device *dev,
 	}
 
 	return rc;
+}
+
+/*
+ * Live protection state as a single decimal bitmask, see MAX17320_PROT_STATE_*.
+ * Read-only: unlike max17320_protstat, reading it does not clear ProtAlrt.
+ */
+static ssize_t prot_state_show(struct device *dev,
+			       struct device_attribute *attr, char *buf)
+{
+	struct max1720x_priv *priv = dev_get_drvdata(dev);
+	unsigned int prot_status = 0, h_prot_cfg2 = 0, val;
+	int ret;
+
+	ret = max1720x_regmap_read(priv, priv->regs[PROTSTATUS_REG], &prot_status);
+	if (ret < 0)
+		return ret;
+
+	ret = max1720x_regmap_read(priv, priv->regs[HPROTCFG2_REG], &h_prot_cfg2);
+	if (ret < 0)
+		return ret;
+
+	val = prot_status & 0xFFFF;
+	if (h_prot_cfg2 & MAX17320_HPROTCFG2_CHGS)
+		val |= MAX17320_PROT_STATE_CHG_FET_ON;
+	if (h_prot_cfg2 & MAX17320_HPROTCFG2_DISS)
+		val |= MAX17320_PROT_STATE_DIS_FET_ON;
+
+	return snprintf(buf, PAGE_SIZE, "%u\n", val);
 }
 
 static ssize_t leakcurr_show(struct device *dev,
@@ -4603,6 +4638,7 @@ static DEVICE_ATTR_RO(cell);
 static DEVICE_ATTR_RO(temp);
 static DEVICE_ATTR_RO(batt);
 static DEVICE_ATTR_RO(leakcurr);
+static DEVICE_ATTR_RO(prot_state);
 static DEVICE_ATTR_RO(max17320_protstat);
 static DEVICE_ATTR_RO(max17330_protstat);
 static DEVICE_ATTR_RO(remaining_nvm_updates);
@@ -4683,6 +4719,7 @@ static struct attribute *max17320_attr[] = {
 	&dev_attr_temp.attr,
 	&dev_attr_batt.attr,
 	&dev_attr_max17320_protstat.attr,
+	&dev_attr_prot_state.attr,
 	&dev_attr_register_store.attr,
 	&dev_attr_register_read.attr,
 	&dev_attr_remaining_nvm_updates.attr,
@@ -5599,6 +5636,7 @@ static irqreturn_t max17320_irq_handler(int id, void *dev)
 {
 	struct max1720x_priv *priv = dev;
 	u32 val;
+	u32 prot; /* ProtAlrt, kept separate so val still holds Status below */
 
 	/* Check alert type */
 	max1720x_regmap_read(priv, priv->regs[STATUS_REG], &val);
@@ -5607,40 +5645,43 @@ static irqreturn_t max17320_irq_handler(int id, void *dev)
 		dev_info(priv->dev, "Alert: Protection!\n");
 
 		/* Check Protection Alert type */
-		max1720x_regmap_read(priv, priv->regs[PROTALRTS_REG], &val);
+		max1720x_regmap_read(priv, priv->regs[PROTALRTS_REG], &prot);
 
-		if (val & MAX17320_PROTSTATUS_CHGWDT)
+		if (prot & MAX17320_PROTSTATUS_CHGWDT)
 			dev_info(priv->dev, "Protection Alert: Charge Watch Dog Timer!\n");
-		if (val & MAX17320_PROTSTATUS_TOOHOTC)
+		if (prot & MAX17320_PROTSTATUS_TOOHOTC)
 			dev_info(priv->dev, "Protection Alert: Overtemperature for Charging!\n");
-		if (val & MAX17320_PROTSTATUS_FULL)
+		if (prot & MAX17320_PROTSTATUS_FULL)
 			dev_info(priv->dev, "Protection Alert: Full Detection!\n");
-		if (val & MAX17320_PROTSTATUS_TOOCOLDC)
+		if (prot & MAX17320_PROTSTATUS_TOOCOLDC)
 			dev_info(priv->dev, "Protection Alert: Undertemperature!\n");
-		if (val & MAX17320_PROTSTATUS_OVP)
+		if (prot & MAX17320_PROTSTATUS_OVP)
 			dev_info(priv->dev, "Protection Alert: Overvoltage!\n");
-		if (val & MAX17320_PROTSTATUS_OCCP)
+		if (prot & MAX17320_PROTSTATUS_OCCP)
 			dev_info(priv->dev, "Protection Alert: Overcharge Current!\n");
-		if (val & MAX17320_PROTSTATUS_QOVFLW)
+		if (prot & MAX17320_PROTSTATUS_QOVFLW)
 			dev_info(priv->dev, "Protection Alert: Q Overflow!\n");
-		if (val & MAX17320_PROTSTATUS_PREQF)
+		if (prot & MAX17320_PROTSTATUS_PREQF)
 			dev_info(priv->dev, "Protection Alert: Prequal timeout!\n");
-		if (val & MAX17320_PROTSTATUS_IMBALANCE)
+		if (prot & MAX17320_PROTSTATUS_IMBALANCE)
 			dev_info(priv->dev, "Protection Alert: Multi-cell imbalance!\n");
-		if (val & MAX17320_PROTSTATUS_PERMFAIL)
+		if (prot & MAX17320_PROTSTATUS_PERMFAIL)
 			dev_info(priv->dev, "Protection Alert: Permanent Failure!\n");
-		if (val & MAX17320_PROTSTATUS_DIEHOT)
+		if (prot & MAX17320_PROTSTATUS_DIEHOT)
 			dev_info(priv->dev, "Protection Alert: Overtemperature for die temperature!\n");
-		if (val & MAX17320_PROTSTATUS_TOOHOTD)
+		if (prot & MAX17320_PROTSTATUS_TOOHOTD)
 			dev_info(priv->dev, "Protection Alert: Overtemperature for Discharging!\n");
-		if (val & MAX17320_PROTSTATUS_UVP)
+		if (prot & MAX17320_PROTSTATUS_UVP)
 			dev_info(priv->dev, "Protection Alert: Undervoltage Protection!\n");
-		if (val & MAX17320_PROTSTATUS_ODCP)
+		if (prot & MAX17320_PROTSTATUS_ODCP)
 			dev_info(priv->dev, "Protection Alert: Overdischarge current!\n");
-		if (val & MAX17320_PROTSTATUS_RESDFAULT)
+		if (prot & MAX17320_PROTSTATUS_RESDFAULT)
 			dev_info(priv->dev, "Protection Alert: Discharging Fault!\n");
-		if (val & MAX17320_PROTSTATUS_SHDN)
+		if (prot & MAX17320_PROTSTATUS_SHDN)
 			dev_info(priv->dev, "Protection Alert: Shutdown Event !\n");
+
+		/* Let userspace react to the protection change (e.g. CHG FET turned off) */
+		sysfs_notify(&priv->dev->kobj, NULL, dev_attr_prot_state.attr.name);
 	}
 
 	if (val & MAX1720X_STATUS_SOC_MAX_ALRT)
