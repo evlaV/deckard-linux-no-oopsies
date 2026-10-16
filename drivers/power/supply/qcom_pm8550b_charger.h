@@ -185,10 +185,16 @@
 /*
  * aicl_state sysfs bitmask. Bits 6:0 are the live MISC_AICL_STATUS bits;
  * bits 8 and 9 are the cached result of the last AICL run, cleared by
- * aicl_rerun and on power loss.
+ * aicl_rerun and on power loss. With the optional DCDC base, bit 10 is set
+ * and bits 22:16 / 30:24 hold DCDC_ICL_MAX_STATUS / DCDC_ICL_AICL_STATUS
+ * (x 50 mA).
  */
 #define PM8550B_AICL_STATE_DONE BIT(8)
 #define PM8550B_AICL_STATE_FAILED BIT(9)
+#define PM8550B_AICL_STATE_ICL_VALID BIT(10)
+#define PM8550B_AICL_STATE_ICL_MAX_SHIFT (16)
+#define PM8550B_AICL_STATE_ICL_AICL_SHIFT (24)
+#define PM8550B_AICL_STATE_ICL_MASK (0x7F)
 
 #define MISC_INT_STATUS (0x10)
 
@@ -258,7 +264,13 @@
 #define PM8550B_TEMP_STS_JEITA_WARM_COOL BIT(7)
 #define PM8550B_TEMP_STS_LATCHED_SHIFT (8)
 
-/* DCDC peripheral (0x27xx); there is no chg->base[] entry for it yet */
+/* DCDC peripheral (0x27xx), chg->base[BASE_DCDC], optional in the device tree */
+/* Maximum ICL for the connected adapter (APSD and/or USB_ICL_CFG), DATA x 50 mA */
+#define DCDC_ICL_MAX_STATUS (0x06)
+/* ICL in effect after APSD and AICL, DATA x 50 mA */
+#define DCDC_ICL_AICL_STATUS (0x07)
+#define DCDC_ICL_STATUS_MASK GENMASK(6, 0) /* DATA = 0..100 */
+
 #define DCDC_CFLY_STATUS (0x69)
 #define DCDC_CFLY_STATUS_SS_DONE_MASK BIT(0) /* CFLY soft start completed */
 #define DCDC_CFLY_STATUS_SS_DONE_OTG_MASK BIT(1) /* CFLY OTG fault, status only */
