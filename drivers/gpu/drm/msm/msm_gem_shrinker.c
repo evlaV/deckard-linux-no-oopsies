@@ -215,8 +215,7 @@ msm_gem_shrinker_scan(struct shrinker *shrinker, struct shrink_control *sc)
 
 	if (freed) {
 		trace_msm_gem_shrink(sc->nr_to_scan, stages[0].freed,
-				     stages[1].freed, stages[2].freed,
-				     stages[3].freed);
+				     stages[1].freed, 0, 0);
 	}
 
 	return (freed > 0 && remaining > 0) ? freed : SHRINK_STOP;
