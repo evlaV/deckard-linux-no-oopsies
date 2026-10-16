@@ -191,8 +191,6 @@ void ath12k_dp_link_peer_map_event(struct ath12k_base *ab, u8 vdev_id, u16 peer_
 	ath12k_dbg(ab, ATH12K_DBG_DP_HTT, "htt peer map vdev %d peer %pM id %d\n",
 		   vdev_id, mac_addr, peer_id);
 
-	if (!peer_id)
-		ath12k_warn(ab, "vdev %u peer %pM mapped to peer_id 0\n", vdev_id, mac_addr);
 exit:
 	spin_unlock_bh(&dp->dp_lock);
 }
