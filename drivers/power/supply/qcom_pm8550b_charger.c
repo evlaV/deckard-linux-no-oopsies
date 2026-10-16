@@ -48,13 +48,18 @@ enum base_index {
 	BASE_CHG2 = 1,
 	BASE_MISC = 2,
     BASE_BATIF = 3,
-	BASE_COUNT = 4,
+	BASE_DCDC = 4, /* Optional, used to check the USB ICL for AICL complete */
+	BASE_COUNT = 5,
 };
+
+/* Device trees before BASE_DCDC only have these */
+#define BASE_REQUIRED_COUNT (BASE_DCDC)
 
 struct pm8550b_charger {
 	struct device *dev;
 	struct regmap *regmap;
 	u32 base[BASE_COUNT];
+	bool has_dcdc_base; /* reg has the optional BASE_DCDC entry */
 
 	struct power_supply *psy;
 
@@ -547,6 +552,20 @@ static ssize_t aicl_state_show(struct device *dev, struct device_attribute *attr
 		val |= PM8550B_AICL_STATE_DONE;
 	if (READ_ONCE(chg->aicl_failed))
 		val |= PM8550B_AICL_STATE_FAILED;
+
+	/* ICL max for the adapter and ICL in effect, so userspace can tell AICL has nothing to do */
+	if (chg->has_dcdc_base) {
+		unsigned int icl_max, icl_aicl;
+
+		ret = regmap_read(chg->regmap, chg->base[BASE_DCDC] + DCDC_ICL_MAX_STATUS, &icl_max);
+		if (!ret)
+			ret = regmap_read(chg->regmap, chg->base[BASE_DCDC] + DCDC_ICL_AICL_STATUS, &icl_aicl);
+		if (!ret) {
+			val |= PM8550B_AICL_STATE_ICL_VALID;
+			val |= (icl_max & DCDC_ICL_STATUS_MASK) << PM8550B_AICL_STATE_ICL_MAX_SHIFT;
+			val |= (icl_aicl & DCDC_ICL_STATUS_MASK) << PM8550B_AICL_STATE_ICL_AICL_SHIFT;
+		}
+	}
 
 	return sysfs_emit(buf, "%u\n", val);
 }
@@ -1552,9 +1571,14 @@ static int qcom_pm8550b_charger_probe(struct platform_device *pdev)
 	chg->regmap = regmap;
 
 	/* Get the base register */
-	ret = of_property_read_u32_array(np, "reg", chg->base, BASE_COUNT);
+	ret = of_property_read_u32_array(np, "reg", chg->base, BASE_REQUIRED_COUNT);
 	if (ret)
 		return ret;
+
+	/* DCDC base is optional; without it aicl_state doesn't report the USB ICL */
+	chg->has_dcdc_base = !of_property_read_u32_index(np, "reg", BASE_DCDC, &chg->base[BASE_DCDC]);
+	if (!chg->has_dcdc_base)
+		dev_info(dev, "No DCDC base in reg, USB ICL not reported in aicl_state\n");
 
 	/* Log charging dropouts from the previous session before reconfiguring the charger */
 	pm8550b_charger_log_latched_status(chg);
