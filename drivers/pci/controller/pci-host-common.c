@@ -288,9 +288,6 @@ static int __pci_host_common_d3cold_possible(struct pci_dev *pdev,
 {
 	u32 *flags = userdata;
 
-	if (pci_pcie_type(pdev) != PCI_EXP_TYPE_ENDPOINT)
-		return 0;
-
 	if (!pdev->dev.driver && !pci_is_enabled(pdev))
 		return 0;
 
