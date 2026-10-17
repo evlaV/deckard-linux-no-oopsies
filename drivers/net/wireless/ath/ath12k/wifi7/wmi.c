@@ -7,6 +7,19 @@
 #include "../core.h"
 #include "wmi.h"
 
+static void
+ath12k_wifi7_wmi_set_rx_reorder_timeout(struct ath12k_wmi_resource_config_arg *config)
+{
+	u32 timeout[WME_NUM_AC];
+
+	ath12k_get_rx_reorder_timeout(timeout);
+
+	config->rx_timeout_pri[WME_AC_BE] = timeout[WME_AC_BE];
+	config->rx_timeout_pri[WME_AC_BK] = timeout[WME_AC_BK];
+	config->rx_timeout_pri[WME_AC_VI] = timeout[WME_AC_VI];
+	config->rx_timeout_pri[WME_AC_VO] = timeout[WME_AC_VO];
+}
+
 void ath12k_wifi7_wmi_init_qcn9274(struct ath12k_base *ab,
 				   struct ath12k_wmi_resource_config_arg *config)
 {
@@ -19,10 +32,7 @@ void ath12k_wifi7_wmi_init_qcn9274(struct ath12k_base *ab,
 	config->ast_skid_limit = TARGET_AST_SKID_LIMIT;
 	config->tx_chain_mask = (1 << ab->target_caps.num_rf_chains) - 1;
 	config->rx_chain_mask = (1 << ab->target_caps.num_rf_chains) - 1;
-	config->rx_timeout_pri[0] = TARGET_RX_TIMEOUT_LO_PRI;
-	config->rx_timeout_pri[1] = TARGET_RX_TIMEOUT_LO_PRI;
-	config->rx_timeout_pri[2] = TARGET_RX_TIMEOUT_LO_PRI;
-	config->rx_timeout_pri[3] = TARGET_RX_TIMEOUT_HI_PRI;
+	ath12k_wifi7_wmi_set_rx_reorder_timeout(config);
 
 	if (test_bit(ATH12K_FLAG_RAW_MODE, &ab->dev_flags))
 		config->rx_decap_mode = TARGET_DECAP_MODE_RAW;
@@ -71,10 +81,7 @@ void ath12k_wifi7_wmi_init_wcn7850(struct ath12k_base *ab,
 	config->ast_skid_limit = TARGET_AST_SKID_LIMIT;
 	config->tx_chain_mask = (1 << ab->target_caps.num_rf_chains) - 1;
 	config->rx_chain_mask = (1 << ab->target_caps.num_rf_chains) - 1;
-	config->rx_timeout_pri[0] = TARGET_RX_TIMEOUT_LO_PRI;
-	config->rx_timeout_pri[1] = TARGET_RX_TIMEOUT_LO_PRI;
-	config->rx_timeout_pri[2] = TARGET_RX_TIMEOUT_LO_PRI;
-	config->rx_timeout_pri[3] = TARGET_RX_TIMEOUT_HI_PRI;
+	ath12k_wifi7_wmi_set_rx_reorder_timeout(config);
 	config->rx_decap_mode = TARGET_DECAP_MODE_NATIVE_WIFI;
 	config->scan_max_pending_req = TARGET_SCAN_MAX_PENDING_REQS;
 	config->bmiss_offload_max_vdev = TARGET_BMISS_OFFLOAD_MAX_VDEV;
