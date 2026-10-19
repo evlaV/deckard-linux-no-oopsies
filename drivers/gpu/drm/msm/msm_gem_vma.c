@@ -1303,34 +1303,6 @@ vm_bind_job_lock_objects(struct msm_vm_bind_job *job, struct drm_exec *exec)
  * other objects for evicting.
  */
 static int
-vm_bind_job_pre_pin_objects(struct msm_vm_bind_job *job)
-{
-	struct drm_gem_object *obj;
-
-	/*
-	 * First loop, before holding the LRU lock, avoids holding the
-	 * LRU lock while calling msm_gem_pin_vma_locked (which could
-	 * trigger get_pages())
-	 */
-	job_foreach_bo (obj, job) {
-		struct page **pages;
-
-		msm_gem_lock(obj);
-		pages = msm_gem_get_pages_locked(obj, MSM_MADV_WILLNEED);
-		msm_gem_unlock(obj);
-		if (IS_ERR(pages))
-			return PTR_ERR(pages);
-	}
-
-	return 0;
-}
-
-/*
- * Pin GEM objects, ensuring that we have backing pages.  Pinning will move
- * the object to the pinned LRU so that the shrinker knows to first consider
- * other objects for evicting.
- */
-static int
 vm_bind_job_pin_objects(struct msm_vm_bind_job *job)
 {
 	struct drm_gem_object *obj;
@@ -1469,11 +1441,6 @@ vm_bind_job_attach_fences(struct msm_vm_bind_job *job)
 }
 
 int
-drm_gpuvm_validate_besteffort_take_lock(struct drm_gpuvm *gpuvm, struct drm_exec *exec);
-int
-drm_gpuvm_validate_besteffort(struct drm_gpuvm *gpuvm, struct drm_exec *exec);
-
-int
 msm_ioctl_vm_bind(struct drm_device *dev, void *data, struct drm_file *file)
 {
 	struct msm_drm_private *priv = dev->dev_private;
@@ -1583,13 +1550,6 @@ msm_ioctl_vm_bind(struct drm_device *dev, void *data, struct drm_file *file)
 	if (ret)
 		goto out_unlock;
 
-	atomic_inc_return(&to_msm_vm(job->vm)->unevictable);
-	ret = vm_bind_job_pre_pin_objects(job);
-	if (ret) {
-		atomic_dec_return(&to_msm_vm(job->vm)->unevictable);
-		goto out_unlock;
-	}
-
 	struct drm_exec exec;
 	unsigned flags = DRM_EXEC_IGNORE_DUPLICATES | DRM_EXEC_INTERRUPTIBLE_WAIT;
 	drm_exec_init(&exec, flags, nr_bos + 1);
@@ -1597,8 +1557,6 @@ msm_ioctl_vm_bind(struct drm_device *dev, void *data, struct drm_file *file)
 	ret = vm_bind_job_lock_objects(job, &exec);
 	if (ret)
 		goto out;
-
-	atomic_dec_return(&to_msm_vm(job->vm)->unevictable);
 
 	ret = vm_bind_job_pin_objects(job);
 	if (ret)

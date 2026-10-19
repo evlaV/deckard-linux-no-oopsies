@@ -117,7 +117,7 @@ is_flagged_unevictable(struct drm_gem_object *obj)
 	drm_gem_for_each_gpuvm_bo (vm_bo, obj) {
 		struct msm_gem_vm *msm_vm = to_msm_vm(vm_bo->vm);
 
-		if (atomic_read(&msm_vm->unevictable))
+		if (msm_vm->unevictable)
 			return true;
 	}
 

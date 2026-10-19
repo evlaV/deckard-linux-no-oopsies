@@ -1540,68 +1540,6 @@ drm_gpuvm_validate(struct drm_gpuvm *gpuvm, struct drm_exec *exec)
 }
 EXPORT_SYMBOL_GPL(drm_gpuvm_validate);
 
-int
-drm_gpuvm_validate_besteffort(struct drm_gpuvm *gpuvm)
-{
-	const struct drm_gpuvm_ops *ops = gpuvm->ops;
-	struct drm_exec exec;
-
-	if (unlikely(!ops || !ops->vm_bo_validate))
-		return -EOPNOTSUPP;
-
-	struct drm_gpuvm_bo *vm_bo;
-	struct drm_gpuvm_bo **temp_vm_bos = kmalloc(4096 * sizeof(void*), GFP_KERNEL);
-	LIST_HEAD(evict);
-	int ret = 0, count = 0;
-
-	{
-		__label__ drm_exec_retry;
-
-		drm_exec_init(&exec, 0, 1);
-		drm_exec_until_all_locked(&exec) {
-			drm_exec_lock_obj(&exec, drm_gpuvm_resv_obj(gpuvm));
-			drm_exec_retry_on_contention(&exec);
-			break;
-		}
-
-		for_each_vm_bo_in_list(gpuvm, evict, &evict, vm_bo) {
-			temp_vm_bos[count++] = vm_bo;
-			drm_gpuvm_bo_get(vm_bo);
-		}
-
-		restore_vm_bo_list(gpuvm, evict);
-
-		drm_exec_fini(&exec);
-	}
-
-	for(int i = 0; i < count; i++) {
-		__label__ drm_exec_retry;
-
-		vm_bo = temp_vm_bos[i];
-
-		drm_exec_init(&exec, 0, 1);
-		drm_exec_until_all_locked(&exec) {
-			ret = drm_exec_lock_obj(&exec, drm_gpuvm_resv_obj(gpuvm));
-			if (!ret)
-				ret = drm_exec_lock_obj(&exec, vm_bo->obj);
-			drm_exec_retry_on_contention(&exec);
-			break;
-		}
-
-		ret = ops->vm_bo_validate(vm_bo, NULL);
-		drm_gpuvm_bo_put(vm_bo);
-
-		drm_exec_fini(&exec);
-		if (ret)
-			break;
-	}
-
-	kfree(temp_vm_bos);
-
-	return ret;
-}
-EXPORT_SYMBOL_GPL(drm_gpuvm_validate_besteffort);
-
 /**
  * drm_gpuvm_resv_add_fence - add fence to private and all extobj
  * dma-resv

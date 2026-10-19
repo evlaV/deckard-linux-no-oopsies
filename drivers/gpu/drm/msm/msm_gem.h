@@ -152,7 +152,7 @@ struct msm_gem_vm {
 	 */
 	bool unusable;
 
-	atomic_t unevictable;
+	bool unevictable;
 
 	bool no_lock_hack;
 };
