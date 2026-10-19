@@ -14,7 +14,7 @@ variables:
     GIT_STRATEGY: "none"
   before_script:
     # Clone into a subdirectory, as `local_repo/` may already exist here from the artifacts of jobs we `need`
-    - git clone https://gitlab.steamos.cloud/deckard/deckardos/holo holo
+    - git clone https://gitlab-ci-token:${CI_JOB_TOKEN}@gitlab.steamos.cloud/deckard/deckardos/holo holo
     # Every package that sources `kernel_common.pkgbuild` picks up this commit (and its `+g<sha>` pkgver)
     - sed -i -e "s/^_commit=.*/_commit=${CI_COMMIT_SHA}/" holo/deckard/linux-${KVER}-deckard/kernel_common.pkgbuild
     - cat holo/deckard/linux-${KVER}-deckard/kernel_common.pkgbuild
