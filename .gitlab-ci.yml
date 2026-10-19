@@ -25,12 +25,13 @@ variables:
         grep -qx "source ../linux-${KVER}-deckard/kernel_common.pkgbuild" "holo/deckard/${PKG}/PKGBUILD" || { echo "ERROR: ${PKG} does not source kernel_common.pkgbuild" >&2; exit 1; }
       done
     # holo fetches from the public proxy, which only carries publicly-released commits; the commit under test
-    # usually isn't there yet, so clone from this (private) repository instead
+    # usually isn't there yet, so clone from this (private) repository instead.
+    # The main kernel's source URL lives in `kernel_common.pkgbuild` (as `_kernel_source`), the others in their PKGBUILD
     - |
-      for PKG in linux-${KVER}-deckard linux-api-headers linux-tools; do
-        sed -i -e "s@/deckard/deckardos/linux-valve-publicly-released-branches\.git#@/deckard/deckardos/linux-valve.git#@" "holo/deckard/${PKG}/PKGBUILD"
-        ! grep -q "linux-valve-publicly-released-branches" "holo/deckard/${PKG}/PKGBUILD" || { echo "ERROR: ${PKG} still sources linux-valve-publicly-released-branches" >&2; exit 1; }
-        grep -q "git+https://gitlab.steamos.cloud/deckard/deckardos/linux-valve\.git#commit=\$_commit" "holo/deckard/${PKG}/PKGBUILD" || { echo "ERROR: ${PKG} does not source linux-valve.git" >&2; exit 1; }
+      for FILE in linux-${KVER}-deckard/kernel_common.pkgbuild linux-api-headers/PKGBUILD linux-tools/PKGBUILD; do
+        sed -i -e "s@/deckard/deckardos/linux-valve-publicly-released-branches\.git#@/deckard/deckardos/linux-valve.git#@" "holo/deckard/${FILE}"
+        ! grep -q "linux-valve-publicly-released-branches" "holo/deckard/${FILE}" || { echo "ERROR: ${FILE} still sources linux-valve-publicly-released-branches" >&2; exit 1; }
+        grep -q "git+https://gitlab.steamos.cloud/deckard/deckardos/linux-valve\.git#commit=\$_commit" "holo/deckard/${FILE}" || { echo "ERROR: ${FILE} does not source linux-valve.git" >&2; exit 1; }
       done
     - ulimit -c 0
     - sudo pacman -Syy
