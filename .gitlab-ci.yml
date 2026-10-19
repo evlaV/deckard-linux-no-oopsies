@@ -49,10 +49,6 @@ linux-deckard_build:
   extends: .kernel-base
   timeout: 3h
   script:
-    # Only build the main kernel in CI, dropping alternative kernels (e.g. `hwdebug`) from `_kernels`
-    - sed -i -e '/^declare -gA _kernels=(/,/^)/{/^[[:space:]]*\[main\]=/b;/^[[:space:]]*\[/d}' holo/deckard/linux-${KVER}-deckard/PKGBUILD
-    - |
-      (cd holo/deckard/linux-${KVER}-deckard && source ./PKGBUILD && [[ "${!_kernels[*]}" == main ]]) || { echo "ERROR: failed to restrict _kernels to main" >&2; exit 1; }
     - ./holo/.ci_scripts/build_package.sh holo/deckard/linux-${KVER}-deckard
 
 v4l2loopback-deckard_build:
