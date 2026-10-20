@@ -11605,7 +11605,8 @@ ath12k_mac_vdev_start_restart(struct ath12k_link_vif *arvif,
 		ath12k_warn(ab, "failed to set TPC power for vdev %d: %d\n",
 			    arvif->vdev_id, ret);
 
-	ar->num_started_vdevs++;
+	if (!restart)
+		ar->num_started_vdevs++;
 	ath12k_dbg(ab, ATH12K_DBG_MAC,  "vdev %pM started, vdev_id %d\n",
 		   ahvif->vif->addr, arvif->vdev_id);
 
