@@ -1124,6 +1124,11 @@ again:
 
 	ieee80211_set_chanreq_ap(sdata, chanreq, conn, ap_chandef);
 
+	/* apply the station's limit before channel setup and TPE rearrangement */
+	while (conn->bw_limit <
+	       ieee80211_min_bw_limit_from_chandef(&chanreq->oper))
+		ieee80211_chandef_downgrade(&chanreq->oper, NULL);
+
 	while (!ieee80211_chandef_usable(sdata, &chanreq->oper,
 					 IEEE80211_CHAN_DISABLED)) {
 		if (WARN_ON(chanreq->oper.width == NL80211_CHAN_WIDTH_20_NOHT)) {
