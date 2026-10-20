@@ -1,10 +1,13 @@
 stages:
   - build
   - collect
+  - deploy
 
 variables:
   # Selects `deckard/linux-${KVER}-deckard` (and friends) within holo
   KVER: "618"
+  # The only branch that gets deployed to `linux-valve-publicly-released-branches`
+  DEPLOY_BRANCH: "sm8650-6.18"
 
 .kernel-base:
   stage: build
@@ -92,3 +95,38 @@ kernel-packages:
   artifacts:
     paths:
       - local_repo/*.pkg.tar.zst
+
+# Publish the commit under test to `linux-valve-publicly-released-branches`, the repository holo builds from.
+# Only runs for pipelines on `DEPLOY_BRANCH` itself, and (having no `needs`) only once every job in the
+# earlier stages has succeeded.
+deploy-public:
+  stage: deploy
+  image: registry.gitlab.steamos.cloud/deckard/deckardos/holo/steamos-arm64-package-builder-main:latest
+  variables:
+    # We only need the commit objects, not a checkout of the whole tree
+    GIT_CHECKOUT: "false"
+    PUBLIC_REPO: "gitlab.steamos.cloud/deckard/deckardos/linux-valve-publicly-released-branches.git"
+  dependencies: []
+  resource_group: deploy-public-${CI_COMMIT_BRANCH}
+  rules:
+    - if: $CI_PROJECT_PATH == "deckard/deckardos/linux-valve" && $CI_COMMIT_BRANCH == $DEPLOY_BRANCH
+  script:
+    # If the branch has moved on since this pipeline started, leave it to the newer pipeline,
+    # so that a slow older pipeline can never roll the public branch back.
+    - TIP="$(git ls-remote origin "refs/heads/${CI_COMMIT_BRANCH}" | cut -f1)"
+    - |
+      if [ "${TIP}" != "${CI_COMMIT_SHA}" ]; then
+        echo "${CI_COMMIT_BRANCH} is now at ${TIP}, not ${CI_COMMIT_SHA}; skipping deploy"
+        exit 0
+      fi
+    - git remote add public "https://gitlab-ci-token:${CI_JOB_TOKEN}@${PUBLIC_REPO}"
+    # The CI clone is shallow; that's fine as long as the public repository already has the commits at
+    # the shallow boundary.  If it doesn't (e.g. after a rebase), fetch the full history and try again.
+    # Force, as the public repository mirrors this one and the branch may have been rebased.
+    - |
+      git push --force public "${CI_COMMIT_SHA}:refs/heads/${CI_COMMIT_BRANCH}" || {
+        git fetch --unshallow --no-tags origin
+        git push --force public "${CI_COMMIT_SHA}:refs/heads/${CI_COMMIT_BRANCH}"
+      }
+  tags:
+    - aarch64-linux-docker
