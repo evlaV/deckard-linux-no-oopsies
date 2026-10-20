@@ -4,6 +4,9 @@ stages:
   - deploy
 
 variables:
+  # Have the runner chown the checkout to the job image's user (e.g. `builder`) rather than
+  # leaving it owned by root, so git doesn't complain about "dubious ownership".
+  FF_DISABLE_UMASK_FOR_DOCKER_EXECUTOR: "true"
   # Selects `deckard/linux-${KVER}-deckard` (and friends) within holo
   KVER: "72"
   # The only branch that gets deployed to `linux-valve-publicly-released-branches`
