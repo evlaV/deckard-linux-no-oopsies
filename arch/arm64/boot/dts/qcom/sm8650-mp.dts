@@ -1958,6 +1958,7 @@
     right_spkr_i2s: speaker@38 {
         compatible = "maxim,max98390";
         reg = <0x38>;
+        maxim,dsm_volume_max = <127>; /* -16.5 dB */
         maxim,temperature_calib = <1024>; // TODO
         maxim,r0_calib = <100232>; // TODO
         reset-gpios = <&tlmm 73 GPIO_ACTIVE_LOW>;
@@ -1972,6 +1973,7 @@
     left_spkr_i2s: speaker@3d {
         compatible = "maxim,max98390";
         reg = <0x3d>;
+        maxim,dsm_volume_max = <127>; /* -16.5 dB */
         maxim,temperature_calib = <1024>; // TODO
         maxim,r0_calib = <100232>; // TODO
         reset-gpios = <&tlmm 161 GPIO_ACTIVE_LOW>;
