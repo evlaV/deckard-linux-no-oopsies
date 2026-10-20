@@ -807,12 +807,6 @@ int msm_ioctl_gem_submit(struct drm_device *dev, void *data,
 			goto out;
 	}
 
-	if(submit && submit->ring->id == 0 && ctx->vm)
-	{
-		//if the ring id is 0, this is the high priority ring, so mark the work as unevictable
-		to_msm_vm(ctx->vm)->unevictable = 1;
-	}
-	
 	/* The scheduler owns a ref now: */
 	msm_gem_submit_get(submit);
 

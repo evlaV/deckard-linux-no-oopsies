@@ -328,6 +328,12 @@ int msm_submitqueue_create(struct drm_device *drm, struct msm_context *ctx,
 	if (id)
 		*id = queue->id;
 
+	if(!(flags & MSM_SUBMITQUEUE_VM_BIND) && ring_nr == 0)
+	{
+		//if the ring id is 0, this is the high priority ring, so mark the work as unevictable
+		to_msm_vm(msm_context_vm(drm, ctx))->unevictable = 1;
+	}
+
 	list_add_tail(&queue->node, &ctx->submitqueues);
 
 	write_unlock(&ctx->queuelock);
