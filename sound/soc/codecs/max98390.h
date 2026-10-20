@@ -665,6 +665,8 @@ struct max98390_priv {
 	unsigned int i_l_slot;
 	unsigned int ref_rdc_value;
 	unsigned int ambient_temp_value;
+	unsigned int dsm_vol_max;
+	struct soc_mixer_control dsm_vol_mc;
 	const char *dsm_param_name;
 	bool mute;
     char filename[128];

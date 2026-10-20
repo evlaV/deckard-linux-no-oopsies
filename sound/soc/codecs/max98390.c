@@ -858,6 +858,7 @@ static SOC_ENUM_SINGLE_DECL(max98390_boost_voltage,
 
 static DECLARE_TLV_DB_SCALE(max98390_spk_tlv, 300, 300, 0);
 static DECLARE_TLV_DB_SCALE(max98390_digital_tlv, -8000, 50, 0);
+#define MAX98390_DSM_VOL_MAX 184
 
 static const char * const max98390_current_limit_text[] = {
 	"0.00A", "0.50A", "1.00A", "1.05A", "1.10A", "1.15A", "1.20A", "1.25A",
@@ -1015,9 +1016,6 @@ static int max98390_dsm_calib_put(struct snd_kcontrol *kcontrol,
 }
 
 static const struct snd_kcontrol_new max98390_snd_controls[] = {
-	SOC_SINGLE_TLV("Digital Volume", DSM_VOL_CTRL,
-		0, 184, 0,
-		max98390_digital_tlv),
 	SOC_SINGLE_TLV("Speaker Volume", MAX98390_R203D_SPK_GAIN,
 		0, 6, 0,
 		max98390_spk_tlv),
@@ -1256,6 +1254,36 @@ static void max98390_init_regs(struct snd_soc_component *component)
 	}
 }
 
+/* Applies maxim,dsm_volume_max on top of whatever the DSM params wrote */
+static void max98390_dsm_vol_clip(struct max98390_priv *max98390)
+{
+	unsigned int val;
+
+	if (!max98390->dsm_vol_max)
+		return;
+
+	regmap_read(max98390->regmap, DSM_VOL_CTRL, &val);
+	if (val > max98390->dsm_vol_max)
+		regmap_write(max98390->regmap, DSM_VOL_CTRL, max98390->dsm_vol_max);
+}
+
+static int max98390_add_dsm_vol_control(struct snd_soc_component *component)
+{
+	struct max98390_priv *max98390 =
+		snd_soc_component_get_drvdata(component);
+	struct snd_kcontrol_new kctl = SOC_SINGLE_TLV("Digital Volume",
+		DSM_VOL_CTRL, 0, MAX98390_DSM_VOL_MAX, 0, max98390_digital_tlv);
+
+	/* Create a per-instance copy of the soc_mixer_control struct ... */
+	max98390->dsm_vol_mc = *(struct soc_mixer_control *)kctl.private_value;
+	/* ... so that we can override the platform_max per instance */
+	max98390->dsm_vol_mc.platform_max = max98390->dsm_vol_max;
+	/* And the kctl uses our per-instance structure */
+	kctl.private_value = (unsigned long)&max98390->dsm_vol_mc;
+
+	return snd_soc_add_component_controls(component, &kctl, 1);
+}
+
 static int max98390_probe(struct snd_soc_component *component)
 {
 	struct max98390_priv *max98390 =
@@ -1269,6 +1297,7 @@ static int max98390_probe(struct snd_soc_component *component)
 	max98390_init_regs(component);
 	/* Update dsm bin param */
 	max98390_dsm_init(component);
+	max98390_dsm_vol_clip(max98390);
 
 	/* Dsm Setting */
 	if (max98390->ref_rdc_value) {
@@ -1291,7 +1320,7 @@ static int max98390_probe(struct snd_soc_component *component)
 
 	max98390_irq_setup(component);
 
-	return 0;
+	return max98390_add_dsm_vol_control(component);
 }
 
 #if 0 
@@ -1403,6 +1432,7 @@ static ssize_t load_store(struct device *dev, struct device_attribute *attr,cons
 	if ( ret ) {
 		return ret;
 	}
+	max98390_dsm_vol_clip(max98390);
 
 	return count;
 }
@@ -1500,6 +1530,15 @@ static int max98390_i2c_probe(struct i2c_client *i2c)
 				       &max98390->dsm_param_name);
 	if (ret)
 		max98390->dsm_param_name = "default";
+
+	if (!device_property_read_u32(&i2c->dev, "maxim,dsm_volume_max",
+				      &max98390->dsm_vol_max) &&
+	    (!max98390->dsm_vol_max ||
+	     max98390->dsm_vol_max > MAX98390_DSM_VOL_MAX)) {
+		dev_warn(&i2c->dev, "ignoring invalid dsm_volume_max %u\n",
+			 max98390->dsm_vol_max);
+		max98390->dsm_vol_max = 0;
+	}
 
 	max98390->mute = 1;
 
