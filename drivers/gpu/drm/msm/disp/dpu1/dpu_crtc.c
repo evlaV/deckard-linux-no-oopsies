@@ -1623,6 +1623,9 @@ static struct msm_display_topology dpu_crtc_get_topology(
 	if (crtc_state->ctm || crtc_state->gamma_lut)
 		topology.num_dspp = topology.num_lm;
 
+	if (topology.num_lm == 0)
+		topology.num_lm = 2;
+
 	return topology;
 }
 
@@ -1654,7 +1657,7 @@ static int dpu_crtc_assign_resources(struct drm_crtc *crtc,
 	topology = dpu_crtc_get_topology(crtc, dpu_kms, crtc_state);
 	ret = dpu_rm_reserve(&dpu_kms->rm, global_state,
 			     crtc_state->crtc, &topology);
-	if (ret)
+	if (ret && !dpu_kms->is_dsi_driven_writeback)
 		return ret;
 
 	cstate = to_dpu_crtc_state(crtc_state);
