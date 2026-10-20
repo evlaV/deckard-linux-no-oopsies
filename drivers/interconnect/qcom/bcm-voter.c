@@ -62,18 +62,18 @@ static u64 bcm_div(u64 num, u32 base)
 	return num;
 }
 
-static void bcm_cache_update(struct qcom_icc_bcm *bcm)
+static bool bcm_active_cache_dirty(struct qcom_icc_bcm *bcm)
 {
-	int i;
+	if (!bcm->dirty &&
+	    (bcm->vote_x[QCOM_ICC_BUCKET_AMC] == bcm->vote_x_amc_cached) &&
+	    (bcm->vote_y[QCOM_ICC_BUCKET_AMC] == bcm->vote_y_amc_cached))
+		return false;
 
-	if (!bcm->dirty)
-		return;
-
-	for (i = 0; i < QCOM_ICC_NUM_BUCKETS; i++) {
-		bcm->vote_x_cached[i] = bcm->vote_x[i];
-		bcm->vote_y_cached[i] = bcm->vote_y[i];
-	}
+	bcm->vote_x_amc_cached = bcm->vote_x[QCOM_ICC_BUCKET_AMC];
+	bcm->vote_y_amc_cached = bcm->vote_y[QCOM_ICC_BUCKET_AMC];
 	bcm->dirty = false;
+
+	return true;
 }
 
 /* BCMs with enable_mask use one-hot-encoding for on/off signaling */
@@ -298,7 +298,6 @@ int qcom_icc_bcm_voter_commit(struct bcm_voter *voter)
 	int commit_idx[MAX_VCD + 1];
 	struct tcs_cmd cmds[MAX_BCMS];
 	int ret = 0;
-	int i;
 
 	if (!voter)
 		return 0;
@@ -322,22 +321,12 @@ int qcom_icc_bcm_voter_commit(struct bcm_voter *voter)
 	list_sort(NULL, &voter->commit_list, cmp_vcd);
 
 	/*
-	* check cached values, we should only recheck when we do not have
-	* a dirty cache, and should remove it from commit list if
-	* noting changed
+	* check cached values, we only want to cache and check active values,
+	* wake/sleep cache will be handle by rpmh to be set at suspend.
+	* With this we avoid spamming rpmh write batching with the same values.
 	*/
 	list_for_each_entry_safe(bcm, bcm_tmp, &voter->commit_list, list) {
-		if (!bcm->dirty) {
-			for (i = 0; i < QCOM_ICC_NUM_BUCKETS; i++) {
-				if ((bcm->vote_x[i] != bcm->vote_x_cached[i]) ||
-					(bcm->vote_y[i] != bcm->vote_y_cached[i])) {
-						bcm->dirty = true;
-						break;
-				}
-			}
-		}
-
-		if (!bcm->dirty)
+		if (!bcm_active_cache_dirty(bcm))
 			list_del_init(&bcm->list);
 	}
 
@@ -354,8 +343,11 @@ int qcom_icc_bcm_voter_commit(struct bcm_voter *voter)
 	ret = rpmh_write_batch(voter->dev, RPMH_ACTIVE_ONLY_STATE,
 			       cmds, commit_idx);
 	if (ret) {
+		/* mark all bcm cache dirty when we failed to write */
+		list_for_each_entry_safe(bcm, bcm_tmp, &voter->commit_list, list)
+			bcm->dirty = true;
+
 		pr_err("Error sending AMC RPMH requests (%d)\n", ret);
-		bcm->dirty = true;
 		goto out;
 	}
 
@@ -372,16 +364,10 @@ int qcom_icc_bcm_voter_commit(struct bcm_voter *voter)
 		    bcm->vote_x[QCOM_ICC_BUCKET_SLEEP] ||
 		    bcm->vote_y[QCOM_ICC_BUCKET_WAKE] !=
 		    bcm->vote_y[QCOM_ICC_BUCKET_SLEEP]) {
-			if (bcm->dirty)
-				list_add_tail(&bcm->list, &voter->commit_list);
+			list_add_tail(&bcm->list, &voter->commit_list);
 		} else {
 			list_del_init(&bcm->ws_list);
 		}
-		
-		/*
-		 * updated the bcm cache only after all cases are handled
-		 */
-		bcm_cache_update(bcm);
 	}
 
 	if (list_empty(&voter->commit_list))

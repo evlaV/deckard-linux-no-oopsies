@@ -131,8 +131,8 @@ struct qcom_icc_bcm {
 	u32 addr;
 	u64 vote_x[QCOM_ICC_NUM_BUCKETS];
 	u64 vote_y[QCOM_ICC_NUM_BUCKETS];
-	u64 vote_x_cached[QCOM_ICC_NUM_BUCKETS];
-	u64 vote_y_cached[QCOM_ICC_NUM_BUCKETS];
+	u64 vote_x_amc_cached;
+	u64 vote_y_amc_cached;
 	u64 vote_scale;
 	u32 enable_mask;
 	bool dirty;
