@@ -113,7 +113,7 @@ deploy-public:
   script:
     # If the branch has moved on since this pipeline started, leave it to the newer pipeline,
     # so that a slow older pipeline can never roll the public branch back.
-    - TIP="$(git ls-remote origin "refs/heads/${CI_COMMIT_BRANCH}" | cut -f1)"
+    - TIP="$(git ls-remote "${CI_REPOSITORY_URL}" "refs/heads/${CI_COMMIT_BRANCH}" | cut -f1)"
     - |
       if [ "${TIP}" != "${CI_COMMIT_SHA}" ]; then
         echo "${CI_COMMIT_BRANCH} is now at ${TIP}, not ${CI_COMMIT_SHA}; skipping deploy"
@@ -125,7 +125,7 @@ deploy-public:
     # Force, as the public repository mirrors this one and the branch may have been rebased.
     - |
       git push --force public "${CI_COMMIT_SHA}:refs/heads/${CI_COMMIT_BRANCH}" || {
-        git fetch --unshallow --no-tags origin
+        git fetch --unshallow --no-tags "${CI_REPOSITORY_URL}"
         git push --force public "${CI_COMMIT_SHA}:refs/heads/${CI_COMMIT_BRANCH}"
       }
   tags:
