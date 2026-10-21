@@ -94,12 +94,7 @@ static int iris_set_clocks(struct iris_inst *inst)
 			bump = true;
 			freq *= 2;
 		}
-	} 
-	else if (inst->domain == DECODER) {
-		bump = true; 
-		freq = 600000000; //hack: just always try to get highest freq
-	} 
-	else {
+	} else {
 		if ((inst->buffers.input.actual_count + 1) >= (inst->buffers.input.min_count + 4)) {
 			bump = true;
 		}
