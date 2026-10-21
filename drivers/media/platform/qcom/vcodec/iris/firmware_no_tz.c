@@ -82,18 +82,21 @@ err_unregister:
 
 void deinit_fw_no_tz(struct iris_core *core)
 {
-	struct platform_device *pdev;
+	struct iommu_domain *iommu;
 
 	if (!core->fw.dev)
 		return;
 
-	iommu_detach_device(core->fw.iommu_domain, core->fw.dev);
-	iommu_domain_free(core->fw.iommu_domain);
-	core->fw.iommu_domain = NULL;
+	iommu = core->fw.iommu_domain;
 
-	pdev = to_platform_device(core->fw.dev);
-	platform_device_unregister(pdev);
-	core->fw.dev = NULL;
+	iommu_detach_device(iommu, core->fw.dev);
+
+	if (iommu) {
+		iommu_domain_free(iommu);
+		iommu = NULL;
+	}
+
+	platform_device_unregister(to_platform_device(core->fw.dev));
 }
 
 static void reset_cpu_no_tz(struct iris_core *core)
