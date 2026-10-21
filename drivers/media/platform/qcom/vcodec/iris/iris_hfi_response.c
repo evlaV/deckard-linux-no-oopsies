@@ -277,21 +277,9 @@ static int handle_session_error(struct iris_inst *inst,
 static int handle_system_error(struct iris_core *core,
 			       struct hfi_packet *pkt)
 {
-	struct iris_inst *instance;
-
-	if (pkt)
-		dev_err(core->dev, "received system error of type %#x\n", pkt->type);
-
-	core->state = IRIS_CORE_ERROR;
-
-	mutex_lock(&core->lock);
-	list_for_each_entry(instance, &core->instances, list)
-		iris_inst_change_state(instance, IRIS_INST_ERROR);
-	mutex_unlock(&core->lock);
-
 	print_sfr_message(core);
 
-	schedule_delayed_work(&core->sys_error_handler, msecs_to_jiffies(10));
+	iris_core_deinit(core);
 
 	return 0;
 }

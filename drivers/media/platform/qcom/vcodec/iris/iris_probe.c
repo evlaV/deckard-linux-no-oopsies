@@ -104,15 +104,6 @@ static void iris_remove(struct platform_device *pdev)
 	core->state = IRIS_CORE_DEINIT;
 }
 
-static void iris_sys_error_handler(struct work_struct *work)
-{
-	struct iris_core *core =
-		container_of(work, struct iris_core, sys_error_handler.work);
-
-	iris_core_deinit(core);
-	iris_core_init(core);
-}
-
 static int iris_probe(struct platform_device *pdev)
 {
 	struct device *dev = &pdev->dev;
@@ -139,7 +130,6 @@ static int iris_probe(struct platform_device *pdev)
 		return -ENOMEM;
 
 	INIT_LIST_HEAD(&core->instances);
-	INIT_DELAYED_WORK(&core->sys_error_handler, iris_sys_error_handler);
 
 	core->reg_base = devm_platform_ioremap_resource(pdev, 0);
 	if (IS_ERR(core->reg_base))

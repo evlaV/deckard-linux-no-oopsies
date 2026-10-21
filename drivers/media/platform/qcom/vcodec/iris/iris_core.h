@@ -112,7 +112,6 @@ struct iris_core {
 	struct platform_data			*platform_data;
 	struct plat_core_cap			cap[CORE_CAP_MAX + 1];
 	struct plat_inst_caps			*inst_caps;
-	struct delayed_work                     sys_error_handler;
 	struct list_head			instances;
 	u32					intr_status;
 	char					fw_version[IRIS_VERSION_LENGTH];
