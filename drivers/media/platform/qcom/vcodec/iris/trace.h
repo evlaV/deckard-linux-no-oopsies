@@ -9,51 +9,15 @@
 #include <linux/tracepoint.h>
 
 TRACE_EVENT(iris_hfi_queue_buffer,
-	TP_PROTO(uint64_t timestamp),
-	TP_ARGS(timestamp),
+	TP_PROTO(unsigned int arg1),
+	TP_ARGS(arg1),
 	TP_STRUCT__entry(
-		__field(uint64_t, timestamp)
+		__field(unsigned int, arg1)
 	),
 	TP_fast_assign(
-		__entry->timestamp = timestamp;
+		__entry->arg1 = arg1;
 	),
-	TP_printk("timestamp = %llu", __entry->timestamp)
-);
-
-TRACE_EVENT(iris_hfi_response_input,
-	TP_PROTO(uint64_t timestamp),
-	TP_ARGS(timestamp),
-	TP_STRUCT__entry(
-		__field(uint64_t, timestamp)
-	),
-	TP_fast_assign(
-		__entry->timestamp = timestamp;
-	),
-	TP_printk("timestamp = %llu", __entry->timestamp)
-);
-
-TRACE_EVENT(iris_hfi_response_output,
-	TP_PROTO(uint64_t timestamp),
-	TP_ARGS(timestamp),
-	TP_STRUCT__entry(
-		__field(uint64_t, timestamp)
-	),
-	TP_fast_assign(
-		__entry->timestamp = timestamp;
-	),
-	TP_printk("timestamp = %llu", __entry->timestamp)
-);
-
-TRACE_EVENT(iris_hfi_response_dequeue,
-	TP_PROTO(uint64_t timestamp),
-	TP_ARGS(timestamp),
-	TP_STRUCT__entry(
-		__field(uint64_t, timestamp)
-	),
-	TP_fast_assign(
-		__entry->timestamp = timestamp;
-	),
-	TP_printk("timestamp = %llu", __entry->timestamp)
+	TP_printk("arg1 = %u", __entry->arg1)
 );
 
 TRACE_EVENT(iris_vdec_streamon_input,

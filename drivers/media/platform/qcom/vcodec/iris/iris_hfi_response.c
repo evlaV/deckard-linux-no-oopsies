@@ -10,8 +10,6 @@
 #include "iris_hfi_response.h"
 #include "iris_vdec.h"
 
-#include "trace.h"
-
 struct iris_core_hfi_range {
 	u32 begin;
 	u32 end;
@@ -410,8 +408,6 @@ static int handle_input_buffer(struct iris_inst *inst,
 	if (!(buf->attr & BUF_ATTR_QUEUED))
 		return 0;
 
-	trace_iris_hfi_response_input(buf->timestamp);
-
 	buf->data_size = buffer->data_size;
 	buf->attr &= ~BUF_ATTR_QUEUED;
 	buf->attr |= BUF_ATTR_DEQUEUED;
@@ -477,8 +473,6 @@ static int handle_output_buffer(struct iris_inst *inst,
 	buf->data_size = hfi_buffer->data_size;
 	buf->timestamp = hfi_buffer->timestamp;
 
-	trace_iris_hfi_response_output(buf->timestamp);
-
 	buf->attr &= ~BUF_ATTR_QUEUED;
 	buf->attr |= BUF_ATTR_DEQUEUED;
 
@@ -532,7 +526,6 @@ static int handle_dequeue_buffers(struct iris_inst *inst)
 				buf->attr &= ~BUF_ATTR_DEQUEUED;
 				if (!(buf->attr & BUF_ATTR_BUFFER_DONE)) {
 					buf->attr |= BUF_ATTR_BUFFER_DONE;
-					trace_iris_hfi_response_dequeue(buf->timestamp);
 					ret = iris_vb2_buffer_done(inst, buf);
 					if (ret)
 						ret = 0;
@@ -945,8 +938,6 @@ static int handle_session_response(struct iris_core *core,
 		{HFI_PROP_BEGIN,           HFI_PROP_END,           handle_session_property },
 		{HFI_CMD_BEGIN,            HFI_CMD_END,            handle_session_command  },
 	};
-
-	// TODO: trace
 
 	inst = to_instance(core, hdr->session_id);
 	if (!inst)
