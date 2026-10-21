@@ -150,9 +150,9 @@ static u32 dec_dpb_size_iris3(struct iris_inst *inst)
 						  ALIGN(DIV_ROUND_UP((height + 1) >> 1, 8), 16));
 	} else if (color_fmt == V4L2_PIX_FMT_QC10C) {
 		size =
-		hfi_yuv420_tp10_ubwc_calc_buf_size(ALIGN(roundup(width, 192) * 4 / 3, 256),
+		hfi_yuv420_tp10_ubwc_calc_buf_size(ALIGN(ALIGN(width, 192) * 4 / 3, 256),
 						   ALIGN(height, 16),
-						   ALIGN(roundup(width, 192) * 4 / 3, 256),
+						   ALIGN(ALIGN(width, 192) * 4 / 3, 256),
 						   ALIGN((height + 1) >> 1, 16),
 						   ALIGN(DIV_ROUND_UP(width, 48), 64),
 						   ALIGN(DIV_ROUND_UP(height, 4), 16),

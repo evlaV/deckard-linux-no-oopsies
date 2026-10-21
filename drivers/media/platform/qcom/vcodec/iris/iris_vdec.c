@@ -250,13 +250,13 @@ int vdec_s_fmt(struct iris_inst *inst, struct v4l2_format *f)
 			f->fmt.pix_mp.width = inst->fmt_src->fmt.pix_mp.width;
 		}
 		fmt->fmt.pix_mp.pixelformat = f->fmt.pix_mp.pixelformat;
-		fmt->fmt.pix_mp.width = f->fmt.pix_mp.pixelformat == V4L2_PIX_FMT_QC10C ?
-			roundup(f->fmt.pix_mp.width, 192) : ALIGN(f->fmt.pix_mp.width, 128);
+		codec_align = f->fmt.pix_mp.pixelformat == V4L2_PIX_FMT_QC10C ? 192 : 128;
+		fmt->fmt.pix_mp.width = ALIGN(f->fmt.pix_mp.width, codec_align);
 		codec_align = f->fmt.pix_mp.pixelformat == V4L2_PIX_FMT_QC10C ? 16 : 32;
 		fmt->fmt.pix_mp.height = ALIGN(f->fmt.pix_mp.height, codec_align);
 		fmt->fmt.pix_mp.num_planes = 1;
 		if (f->fmt.pix_mp.pixelformat == V4L2_PIX_FMT_QC10C) {
-			stride = roundup(f->fmt.pix_mp.width, 192);
+			stride = ALIGN(f->fmt.pix_mp.width, 192);
 			fmt->fmt.pix_mp.plane_fmt[0].bytesperline = ALIGN(stride * 4 / 3, 256);
 		} else {
 			fmt->fmt.pix_mp.plane_fmt[0].bytesperline = ALIGN(f->fmt.pix_mp.width, 128);
@@ -723,12 +723,12 @@ static int vdec_read_input_subcr_params(struct iris_inst *inst)
 	 	pixmp_op->pixelformat = V4L2_PIX_FMT_QC10C;
 
 	pixmp_op->width = pixmp_op->pixelformat == V4L2_PIX_FMT_QC10C ?
-		roundup(width, 192) : ALIGN(width, 128);
+		ALIGN(width, 192) : ALIGN(width, 128);
 	pixmp_op->height = pixmp_op->pixelformat == V4L2_PIX_FMT_QC10C ?
 		ALIGN(height, 16) : ALIGN(height, 32);
 	pixmp_op->plane_fmt[0].bytesperline =
 		pixmp_op->pixelformat == V4L2_PIX_FMT_QC10C ?
-		ALIGN(roundup(width, 192) * 4 / 3, 256) :
+		ALIGN(ALIGN(width, 192) * 4 / 3, 256) :
 		ALIGN(width, 128);
 	pixmp_op->plane_fmt[0].sizeimage = iris_get_buffer_size(inst, BUF_OUTPUT);
 
@@ -882,9 +882,9 @@ static int vdec_set_ubwc_stride_scanline(struct iris_inst *inst)
 		meta_stride_uv = ALIGN(DIV_ROUND_UP((width + 1) >> 1, 16), 64);
 		meta_scanline_uv = ALIGN(DIV_ROUND_UP((height + 1) >> 1, 8), 16);
 	} else {
-		stride_y = ALIGN(roundup(width, 192) * 4 / 3, 256);
+		stride_y = ALIGN(ALIGN(width, 192) * 4 / 3, 256);
 		scanline_y = ALIGN(height, 16);
-		stride_uv = ALIGN(roundup(width, 192) * 4 / 3, 256);
+		stride_uv = ALIGN(ALIGN(width, 192) * 4 / 3, 256);
 		scanline_uv = ALIGN((height + 1) >> 1, 16);
 		meta_stride_y = ALIGN(DIV_ROUND_UP(width, 48), 64);
 		meta_scanline_y = ALIGN(DIV_ROUND_UP(height, 4), 16);
