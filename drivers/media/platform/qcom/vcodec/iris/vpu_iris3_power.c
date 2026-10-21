@@ -24,7 +24,7 @@ u64 iris_calc_freq_iris3(struct iris_inst *inst, u32 data_size)
 	height = max(inp_f->fmt.pix_mp.height, inst->crop.height);
 
 	mbpf = NUM_MBS_PER_FRAME(height, width);
-	fps = max(inst->max_rate, 30);
+	fps = inst->max_rate;
 	mbs_per_second = mbpf * fps;
 
 	fw_cycles = fps * inst->cap[MB_CYCLES_FW].value;

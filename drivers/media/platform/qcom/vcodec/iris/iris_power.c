@@ -71,7 +71,6 @@ static int iris_set_clocks(struct iris_inst *inst)
 {
 	struct iris_inst *instance;
 	struct iris_core *core;
-	bool bump = false;
 	int ret = 0;
 	u64 freq;
 
@@ -87,20 +86,14 @@ static int iris_set_clocks(struct iris_inst *inst)
 		freq += instance->power.min_freq;
 	}
 
+	// !! HACK: The frequencies that are computed by iris_calc_freq_iris3 are looking extremely slow
+	// and makes the encoder lag behind even when trying to encode a small load of data
+	// Need to revisit this once we understand why the frequencies are so low
+	// Set it to the turbo_l1 frequency listed in the opp_table
+	freq = 600000000;
 	core->power.clk_freq = freq;
 
-	if (inst->domain == ENCODER) {
-		if ((inst->buffers.output.actual_count + 1) >= (inst->buffers.output.min_count + 4)) {
-			bump = true;
-			freq *= 2;
-		}
-	} else {
-		if ((inst->buffers.input.actual_count + 1) >= (inst->buffers.input.min_count + 4)) {
-			bump = true;
-		}
-	}
-
-	ret = opp_set_rate(core, freq, bump);
+	ret = opp_set_rate(core, freq);
 
 	mutex_unlock(&core->lock);
 

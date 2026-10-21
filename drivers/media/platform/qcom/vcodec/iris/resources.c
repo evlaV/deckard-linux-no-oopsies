@@ -19,7 +19,7 @@
 
 #define BW_THRESHOLD 50000
 
-int opp_set_rate(struct iris_core *core, u64 freq, bool inc)
+int opp_set_rate(struct iris_core *core, u64 freq)
 {
 	unsigned long opp_freq = 0;
 	struct dev_pm_opp *opp;
@@ -37,12 +37,6 @@ int opp_set_rate(struct iris_core *core, u64 freq, bool inc)
 		}
 	}
 	dev_pm_opp_put(opp);
-
-	/* Look for next OPP */
-	if (inc) {
-		opp = dev_pm_opp_find_freq_floor(core->dev, &opp_freq);
-		dev_pm_opp_put(opp);
-	}
 
 	ret = dev_pm_opp_set_rate(core->dev, opp_freq);
 	if (ret) {
@@ -128,7 +122,7 @@ int enable_power_domains(struct iris_core *core, enum platform_pm_domain_type id
 {
 	int ret;
 
-	ret = opp_set_rate(core, ULONG_MAX, false);
+	ret = opp_set_rate(core, ULONG_MAX);
 	if (ret)
 		return ret;
 
@@ -143,7 +137,7 @@ int disable_power_domains(struct iris_core *core, enum platform_pm_domain_type i
 {
 	int ret;
 
-	ret = opp_set_rate(core, 0, false);
+	ret = opp_set_rate(core, 0);
 	if (ret)
 		return ret;
 

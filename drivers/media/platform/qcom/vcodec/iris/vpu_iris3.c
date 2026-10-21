@@ -380,7 +380,7 @@ static int power_off_iris3(struct iris_core *core)
 	dev_err(core->dev, "hack: skipping power_off_iris3 \n");
 	return 0; // gabe hack prevent iris3 from being powered off
 
-	opp_set_rate(core, 0, false);
+	opp_set_rate(core, 0);
 	power_off_iris3_hardware(core);
 	power_off_iris3_controller(core);
 	unvote_buses(core);
@@ -471,7 +471,7 @@ static int power_on_iris3(struct iris_core *core)
 	freq = core->power.clk_freq ? core->power.clk_freq :
 				      (u32)ULONG_MAX;
 
-	opp_set_rate(core, freq, false);
+	opp_set_rate(core, freq);
 
 	set_preset_registers(core);
 
