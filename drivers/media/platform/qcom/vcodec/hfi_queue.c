@@ -253,7 +253,7 @@ void hfi_queue_deinit(struct device *dev, struct mem_desc *q_table, struct mem_d
 	if (!q_table->kernel_vaddr)
 		return;
 
-	dma_free_attrs(dev, ALIGNED_QUEUE_SIZE, q_table->kernel_vaddr,
+	dma_free_attrs(dev, q_table->size, q_table->kernel_vaddr,
 		       q_table->device_addr, q_table->attrs);
 
 	dma_free_attrs(dev, sfr->size, sfr->kernel_vaddr,
