@@ -712,16 +712,6 @@ static int vdec_read_input_subcr_params(struct iris_inst *inst)
 	pixmp_ip->width = width;
 	pixmp_ip->height = height;
 
-	/*
-	 * misyl: Set the format to the right one based on the bit depth here.
-	 * Otherwise there is no way of determining if we are MAIN10 or MAIN (!!!)
-	 * V4L2 suckssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssss
-	 */
-	if (subsc_params.bit_depth == BIT_DEPTH_8 && pixmp_op->pixelformat != V4L2_PIX_FMT_NV12 && pixmp_op->pixelformat != V4L2_PIX_FMT_QC08C)
-		pixmp_op->pixelformat = V4L2_PIX_FMT_NV12;
-	else if (subsc_params.bit_depth == BIT_DEPTH_10 && pixmp_op->pixelformat != V4L2_PIX_FMT_QC10C) /* normal p010 not supported yet... */
-	 	pixmp_op->pixelformat = V4L2_PIX_FMT_QC10C;
-
 	pixmp_op->width = pixmp_op->pixelformat == V4L2_PIX_FMT_QC10C ?
 		ALIGN(width, 192) : ALIGN(width, 128);
 	pixmp_op->height = pixmp_op->pixelformat == V4L2_PIX_FMT_QC10C ?
