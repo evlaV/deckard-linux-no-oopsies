@@ -436,6 +436,9 @@ static int power_off_iris3(struct iris_core *core)
 	if (!core->power_enabled)
 		return 0;
 
+	dev_err(core->dev, "hack: skipping power_off_iris3 \n");
+	return 0; // gabe hack prevent iris3 from being powered off
+
 	opp_set_rate(core, 0, false);
 	power_off_iris3_hardware(core);
 	power_off_iris3_controller(core);
