@@ -24,7 +24,7 @@ bool core_in_valid_state(struct iris_core *core)
 		core->state == IRIS_CORE_INIT_WAIT;
 }
 
-const char *core_state_name(enum iris_core_state state)
+static const char *core_state_name(enum iris_core_state state)
 {
 	if ((unsigned int)state < ARRAY_SIZE(core_state_names))
 		return core_state_names[state];

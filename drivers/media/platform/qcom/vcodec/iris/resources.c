@@ -472,20 +472,9 @@ static ssize_t opp_cur_freq_show(struct device *dev,
 
 static DEVICE_ATTR_RO(opp_cur_freq);
 
-static ssize_t core_state_show(struct device *dev,
-			    struct device_attribute *attr, char *buf)
-{
-	struct iris_core *core = dev_get_drvdata(dev);
-
-	return sysfs_emit_at(buf, 0, "%s\n", core_state_name(core->state));
-}
-
-static DEVICE_ATTR_RO(core_state);
-
 static const struct attribute *iris_attrs[] = {
 	&dev_attr_opp_force_freq.attr,
 	&dev_attr_opp_cur_freq.attr,
-	&dev_attr_core_state.attr,
 	NULL,
 };
 

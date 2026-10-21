@@ -48,7 +48,6 @@ enum state_change {
 ((inst)->state == IRIS_INST_ERROR)
 
 bool core_in_valid_state(struct iris_core *core);
-const char *core_state_name(enum iris_core_state state);
 int iris_change_core_state(struct iris_core *core,
 			   enum iris_core_state request_state);
 
