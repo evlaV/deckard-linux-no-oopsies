@@ -51,8 +51,6 @@ enum colorformat_type {
 	FMT_NV12	= BIT(1),
 	FMT_NV21	= BIT(2),
 	FMT_TP10C	= BIT(3),
-	FMT_RGBA8	= BIT(4),
-	FMT_RGBA8C	= BIT(5),
 };
 
 struct rect_desc {

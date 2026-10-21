@@ -59,14 +59,6 @@ static struct color_format_info color_format_data_sm8550[] = {
 		.v4l2_color_format = V4L2_PIX_FMT_QC10C,
 		.color_format = FMT_TP10C,
 	},
-	{
-		.v4l2_color_format = V4L2_PIX_FMT_RGBA32,
-		.color_format = FMT_RGBA8,
-	},
-	{
-		.v4l2_color_format = V4L2_PIX_FMT_RGBA32_UBWC,
-		.color_format = FMT_RGBA8C,
-	},
 };
 
 static struct plat_core_cap core_data_sm8550[] = {
@@ -111,8 +103,8 @@ static struct plat_inst_cap instance_cap_data_sm8550[] = {
 
 	{PIX_FMTS, ENC, H264,
 		FMT_NV12,
-		FMT_RGBA8C,
-		FMT_NV12 | FMT_NV21 | FMT_NV12C | FMT_RGBA8 | FMT_RGBA8C,
+		FMT_NV12C,
+		FMT_NV12 | FMT_NV21 | FMT_NV12C,
 		FMT_NV12C,
 		0, 0,
 		CAP_FLAG_NONE},
@@ -128,8 +120,8 @@ static struct plat_inst_cap instance_cap_data_sm8550[] = {
 
 	{PIX_FMTS, ENC, HEVC,
 		FMT_NV12,
-		FMT_RGBA8C,
-		FMT_NV12 | FMT_NV21 | FMT_NV12C | FMT_TP10C | FMT_RGBA8 | FMT_RGBA8C,
+		FMT_TP10C,
+		FMT_NV12 | FMT_NV21 | FMT_NV12C | FMT_TP10C,
 		FMT_NV12C,
 		0, 0,
 		CAP_FLAG_NONE,

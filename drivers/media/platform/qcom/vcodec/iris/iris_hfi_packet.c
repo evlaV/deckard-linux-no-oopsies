@@ -191,12 +191,6 @@ u32 get_hfi_colorformat(u32 colorformat)
 	case V4L2_PIX_FMT_NV21:
 		hfi_colorformat = HFI_COLOR_FMT_NV21;
 		break;
-	case V4L2_PIX_FMT_RGBA32:
-		hfi_colorformat = HFI_COLOR_FMT_RGBA8888;
-		break;
-	case V4L2_PIX_FMT_RGBA32_UBWC:
-		hfi_colorformat = HFI_COLOR_FMT_RGBA8888_UBWC;
-		break;
 	default:
 		break;
 	}

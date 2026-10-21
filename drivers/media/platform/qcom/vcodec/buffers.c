@@ -93,14 +93,6 @@ u32 video_raw_buffer_size(u32 colorformat,
 
 		size = y_plane + uv_plane;
 		break;
-	case V4L2_PIX_FMT_RGBA32:
-		size = ALIGN(pix_width, 64) * ALIGN(pix_height, 32) * 4;
-		break;
-	case V4L2_PIX_FMT_RGBA32_UBWC:
-		size = ALIGN(DIV_ROUND_UP(pix_width, 16), 64) * ALIGN(DIV_ROUND_UP(pix_height, 4), 16);
-		size = ALIGN(size, 4096);
-		size += ALIGN(pix_width, 64) * ALIGN(pix_height, 16) * 4;
-		break;
 	default:
 		break;
 	}

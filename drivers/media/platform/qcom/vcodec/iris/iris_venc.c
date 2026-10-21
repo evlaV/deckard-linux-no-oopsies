@@ -260,20 +260,12 @@ static int venc_s_fmt_input(struct iris_inst *inst, struct v4l2_format *f)
 
 	width = f->fmt.pix_mp.width;
 
-	switch (pix_fmt) {
-	default: /* NV12C, NV12, NV21 */
-		bytesperline = ALIGN(f->fmt.pix_mp.width, 128);
-		height = ALIGN(f->fmt.pix_mp.height, 32);
-		break;
-	case FMT_TP10C:
+	if (pix_fmt == FMT_TP10C) {
 		bytesperline = ALIGN(ALIGN(f->fmt.pix_mp.width, 192) * 4 / 3, 256);
 		height = ALIGN(f->fmt.pix_mp.height, 16);
-		break;
-	case FMT_RGBA8:
-	case FMT_RGBA8C:
-		bytesperline = ALIGN(f->fmt.pix_mp.width, 64) * 4;
-		height = ALIGN(f->fmt.pix_mp.height, pix_fmt == FMT_RGBA8 ? 32 : 16);
-		break;
+	} else {
+		bytesperline = ALIGN(f->fmt.pix_mp.width, 128);
+		height = ALIGN(f->fmt.pix_mp.height, 32);
 	}
 
 	fmt = inst->fmt_src;
@@ -626,16 +618,12 @@ static int venc_set_stride_scanline(struct iris_inst *inst)
 	if (!is_linear_colorformat(color_format))
 		return 0;
 
-	if (color_format == FMT_RGBA8 || color_format == FMT_RGBA8C) {
-		stride_y = ALIGN(inst->fmt_src->fmt.pix_mp.width, 64);
-		scanline_y = ALIGN(inst->fmt_src->fmt.pix_mp.height, color_format == FMT_RGBA8 ? 32 : 16);
-	} else if (color_format == FMT_TP10C) {
-		stride_y = ALIGN(inst->fmt_src->fmt.pix_mp.width, 192);
-		scanline_y = ALIGN(inst->fmt_src->fmt.pix_mp.height, 16);
-	} else {
-		stride_y = ALIGN(inst->fmt_src->fmt.pix_mp.width, 128);
-		scanline_y = ALIGN(inst->fmt_src->fmt.pix_mp.height, 32);
-	}
+	stride_y = color_format == FMT_TP10C ?
+		ALIGN(inst->fmt_src->fmt.pix_mp.width, 192) :
+		ALIGN(inst->fmt_src->fmt.pix_mp.width, 128);
+	scanline_y = color_format == FMT_TP10C ?
+		ALIGN(inst->fmt_src->fmt.pix_mp.height, 16) :
+		ALIGN(inst->fmt_src->fmt.pix_mp.height, 32);
 
 	if (color_format == FMT_NV12 ||
 	    color_format == FMT_NV21) {
