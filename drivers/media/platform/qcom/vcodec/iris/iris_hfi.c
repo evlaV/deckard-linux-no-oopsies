@@ -239,9 +239,6 @@ int iris_hfi_core_deinit(struct iris_core *core)
 
 	iris_power_off(core);
 
-	if (!core->use_tz)
-		deinit_fw_no_tz(core);
-
 	return ret;
 }
 
