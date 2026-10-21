@@ -11,7 +11,6 @@
 struct venus_inst;
 struct venus_core;
 
-u32 to_v4l2_raw_fmt(u32 hfi_color_fmt);
 bool venus_helper_check_codec(struct venus_inst *inst, u32 v4l2_pixfmt);
 struct vb2_v4l2_buffer *venus_helper_find_buf(struct venus_inst *inst,
 					      unsigned int type, u32 idx);
@@ -30,6 +29,7 @@ void venus_helper_m2m_device_run(void *priv);
 void venus_helper_m2m_job_abort(void *priv);
 int venus_helper_get_bufreq(struct venus_inst *inst, u32 type,
 			    struct hfi_buffer_requirements *req);
+u32 venus_helper_get_framesz_raw(u32 hfi_fmt, u32 width, u32 height);
 u32 venus_helper_get_framesz(u32 v4l2_fmt, u32 width, u32 height);
 int venus_helper_set_input_resolution(struct venus_inst *inst,
 				      unsigned int width, unsigned int height);

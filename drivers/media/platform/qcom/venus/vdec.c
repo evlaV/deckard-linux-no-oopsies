@@ -14,7 +14,6 @@
 #include <media/v4l2-mem2mem.h>
 #include <media/videobuf2-dma-contig.h>
 
-#include "../buffers.h"
 #include "hfi_venus_io.h"
 #include "hfi_parser.h"
 #include "core.h"
@@ -783,9 +782,9 @@ static int vdec_output_conf(struct venus_inst *inst)
 		return ret;
 
 	inst->output_buf_size =
-			video_raw_buffer_size(to_v4l2_raw_fmt(out_fmt), width, height);
+			venus_helper_get_framesz_raw(out_fmt, width, height);
 	inst->output2_buf_size =
-			video_raw_buffer_size(to_v4l2_raw_fmt(out2_fmt), width, height);
+			venus_helper_get_framesz_raw(out2_fmt, width, height);
 
 	if (is_ubwc_fmt(out_fmt)) {
 		inst->opb_buftype = HFI_BUFFER_OUTPUT2;

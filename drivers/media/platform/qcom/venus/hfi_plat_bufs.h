@@ -15,8 +15,8 @@ struct hfi_plat_buffers_params {
 	u32 out_width;
 	u32 out_height;
 	u32 codec;
-	u32 color_fmt;
-	u32 dpb_color_fmt;
+	u32 hfi_color_fmt;
+	u32 hfi_dpb_color_fmt;
 	enum hfi_version version;
 	u32 num_vpp_pipes;
 	union {

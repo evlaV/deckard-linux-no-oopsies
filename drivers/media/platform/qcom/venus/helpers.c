@@ -12,7 +12,6 @@
 #include <media/v4l2-mem2mem.h>
 #include <asm/div64.h>
 
-#include "../buffers.h"
 #include "core.h"
 #include "helpers.h"
 #include "hfi_helper.h"
@@ -617,27 +616,6 @@ static u32 to_hfi_raw_fmt(u32 v4l2_fmt)
 	return 0;
 }
 
-u32 to_v4l2_raw_fmt(u32 hfi_color_fmt)
-{
-	switch (hfi_color_fmt) {
-	case HFI_COLOR_FORMAT_NV12:
-		return V4L2_PIX_FMT_NV12;
-	case HFI_COLOR_FORMAT_NV21:
-		return V4L2_PIX_FMT_NV21;
-	case HFI_COLOR_FORMAT_NV12_UBWC:
-		return V4L2_PIX_FMT_QC08C;
-	case HFI_COLOR_FORMAT_YUV420_TP10_UBWC:
-		return V4L2_PIX_FMT_QC10C;
-	case HFI_COLOR_FORMAT_P010:
-		return V4L2_PIX_FMT_P010;
-	default:
-		break;
-	}
-
-	return 0;
-}
-EXPORT_SYMBOL_GPL(to_v4l2_raw_fmt);
-
 static int platform_get_bufreq(struct venus_inst *inst, u32 buftype,
 			       struct hfi_buffer_requirements *req)
 {
@@ -661,20 +639,20 @@ static int platform_get_bufreq(struct venus_inst *inst, u32 buftype,
 		params.out_width = inst->out_width;
 		params.out_height = inst->out_height;
 		params.codec = inst->fmt_out->pixfmt;
-		params.color_fmt = inst->fmt_cap->pixfmt;
+		params.hfi_color_fmt = to_hfi_raw_fmt(inst->fmt_cap->pixfmt);
 		params.dec.max_mbs_per_frame = mbs_per_frame_max(inst);
 		params.dec.buffer_size_limit = 0;
 		params.dec.is_secondary_output =
 			inst->opb_buftype == HFI_BUFFER_OUTPUT2;
 		if (params.dec.is_secondary_output)
-			params.dpb_color_fmt = to_v4l2_raw_fmt(inst->dpb_fmt);
+			params.hfi_dpb_color_fmt = inst->dpb_fmt;
 		params.dec.is_interlaced =
 			inst->pic_struct != HFI_INTERLACE_FRAME_PROGRESSIVE;
 	} else {
 		params.width = inst->out_width;
 		params.height = inst->out_height;
 		params.codec = inst->fmt_cap->pixfmt;
-		params.color_fmt = inst->fmt_out->pixfmt;
+		params.hfi_color_fmt = to_hfi_raw_fmt(inst->fmt_out->pixfmt);
 		params.enc.work_mode = VIDC_WORK_MODE_2;
 		params.enc.rc_type = HFI_RATE_CONTROL_OFF;
 		if (enc_ctr->bitrate_mode == V4L2_MPEG_VIDEO_BITRATE_MODE_CQ)
@@ -1102,8 +1080,8 @@ EXPORT_SYMBOL_GPL(venus_helper_get_framesz_raw);
 
 u32 venus_helper_get_framesz(u32 v4l2_fmt, u32 width, u32 height)
 {
+	u32 hfi_fmt, sz;
 	bool compressed;
-	u32 sz;
 
 	switch (v4l2_fmt) {
 	case V4L2_PIX_FMT_MPEG:
@@ -1134,7 +1112,11 @@ u32 venus_helper_get_framesz(u32 v4l2_fmt, u32 width, u32 height)
 		return ALIGN(sz, SZ_4K);
 	}
 
-	return video_raw_buffer_size(v4l2_fmt, width, height);
+	hfi_fmt = to_hfi_raw_fmt(v4l2_fmt);
+	if (!hfi_fmt)
+		return 0;
+
+	return venus_helper_get_framesz_raw(hfi_fmt, width, height);
 }
 EXPORT_SYMBOL_GPL(venus_helper_get_framesz);
 

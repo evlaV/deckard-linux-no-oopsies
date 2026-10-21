@@ -6,7 +6,6 @@
 #include <linux/sizes.h>
 #include <linux/videodev2.h>
 
-#include "../buffers.h"
 #include "hfi.h"
 #include "hfi_plat_bufs.h"
 #include "helpers.h"
@@ -1234,11 +1233,13 @@ static int bufreq_dec(struct hfi_plat_buffers_params *params, u32 buftype,
 						       buffer_size_limit);
 	} else if (buftype == HFI_BUFFER_OUTPUT || buftype == HFI_BUFFER_OUTPUT2) {
 		hfi_bufreq_set_count_min(bufreq, version, out_min_count);
-		bufreq->size = video_raw_buffer_size(params->color_fmt,
+		bufreq->size =
+			venus_helper_get_framesz_raw(params->hfi_color_fmt,
 						     out_width, out_height);
 		if (buftype == HFI_BUFFER_OUTPUT &&
 		    params->dec.is_secondary_output)
-			bufreq->size = video_raw_buffer_size(params->dpb_color_fmt,
+			bufreq->size =
+				venus_helper_get_framesz_raw(params->hfi_dpb_color_fmt,
 							     out_width, out_height);
 	} else if (buftype == HFI_BUFFER_INTERNAL_SCRATCH(version)) {
 		bufreq->size = dec_ops->scratch(width, height, is_interlaced);
@@ -1296,7 +1297,8 @@ static int bufreq_enc(struct hfi_plat_buffers_params *params, u32 buftype,
 
 	if (buftype == HFI_BUFFER_INPUT) {
 		hfi_bufreq_set_count_min(bufreq, version, MIN_INPUT_BUFFERS);
-		bufreq->size = video_raw_buffer_size(params->color_fmt,
+		bufreq->size =
+			venus_helper_get_framesz_raw(params->hfi_color_fmt,
 						     width, height);
 	} else if (buftype == HFI_BUFFER_OUTPUT ||
 		   buftype == HFI_BUFFER_OUTPUT2) {

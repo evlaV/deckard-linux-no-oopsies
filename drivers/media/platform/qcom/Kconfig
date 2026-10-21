@@ -3,5 +3,4 @@
 comment "Qualcomm media platform drivers"
 
 source "drivers/media/platform/qcom/camss/Kconfig"
-source "drivers/media/platform/qcom/vcodec/venus/Kconfig"
-source "drivers/media/platform/qcom/vcodec/iris/Kconfig"
+source "drivers/media/platform/qcom/venus/Kconfig"
