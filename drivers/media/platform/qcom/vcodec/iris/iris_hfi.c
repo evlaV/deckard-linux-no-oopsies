@@ -203,14 +203,6 @@ int iris_hfi_core_init(struct iris_core *core)
 	if (ret)
 		goto error_power_off;
 
-	ret = hfi_packet_sys_interframe_powercollapse(core, core->packet, core->packet_size);
-	if (ret)
-		goto error_power_off;
-
-	ret = iris_hfi_queue_cmd_write(core, core->packet);
-	if (ret)
-		goto error_power_off;
-
 	return ret;
 
 error_power_off:

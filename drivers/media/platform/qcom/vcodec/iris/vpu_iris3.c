@@ -89,16 +89,6 @@
 
 #define VCODEC_SS_IDLE_STATUSN                 (VCODEC_BASE_OFFS_IRIS3 + 0x70)
 
-#define VCODEC_DMA_SPARE_3			0x87B8
-
-#define AON_WRAPPER_MVP_NOC_CORE_CLK_CONTROL	(AON_BASE_OFFS + 0x20)
-#define NOC_HALT				(1)
-
-#define AON_WRAPPER_MVP_NOC_CORE_SW_RESET	(AON_BASE_OFFS + 0x18)
-#define SW_RESET				(1)
-
-#define AON_WRAPPER_SPARE			(AON_BASE_OFFS + 0x28)
-
 static int interrupt_init_iris3(struct iris_core *core)
 {
 	u32 mask_val;
@@ -257,7 +247,7 @@ static bool is_iris3_hw_power_collapsed(struct iris_core *core)
 static int power_off_iris3_hardware(struct iris_core *core)
 {
 	u32 value = 0;
-	int ret, i, count = 0;
+	int ret, i;
 
 	if (is_iris3_hw_power_collapsed(core))
 		goto disable_power;
@@ -277,20 +267,20 @@ static int power_off_iris3_hardware(struct iris_core *core)
 	for (i = 0; i < core->cap[NUM_VPP_PIPE].value; i++) {
 		ret = read_register_with_poll_timeout(core, VCODEC_SS_IDLE_STATUSN + 4 * i,
 						      0x400000, 0x400000, 2000, 20000);
-		if (ret)
-			pr_debug("%s:%d timeout\n", __func__, __LINE__);
-
 	}
 
-	ret = read_register_with_poll_timeout(core, AON_WRAPPER_MVP_NOC_LPI_CONTROL,
-					      0x1, 0x1, 200, 2000);
-	if (ret) {
-		pr_debug("%s:%d timeout\n", __func__, __LINE__);
+	ret = write_register(core, AON_WRAPPER_MVP_NOC_RESET_REQ, 0x3);
+	if (ret)
 		goto disable_power;
-	}
 
-	/* set MNoC to low power, set PD_NOC_QREQ (bit 0) */
-	write_register_masked(core, AON_WRAPPER_MVP_NOC_LPI_CONTROL, BIT(0), BIT(0));
+	ret = read_register_with_poll_timeout(core, AON_WRAPPER_MVP_NOC_RESET_ACK,
+					      0x3, 0x3, 200, 2000);
+	ret = write_register(core, AON_WRAPPER_MVP_NOC_RESET_REQ, 0x0);
+	if (ret)
+		goto disable_power;
+
+	ret = read_register_with_poll_timeout(core, AON_WRAPPER_MVP_NOC_RESET_ACK,
+					      0x3, 0x0, 200, 2000);
 
 	ret = write_register(core, CPU_CS_AHB_BRIDGE_SYNC_RESET, 0x3);
 	if (ret)
@@ -303,12 +293,6 @@ static int power_off_iris3_hardware(struct iris_core *core)
 		goto disable_power;
 
 disable_power:
-	ret = power_domain_set_hwmode(core, IRIS_HW_POWER_DOMAIN, false);
-	if (ret) {
-		dev_err(core->dev, "disable hwmode domain vcodec failed\n");
-		ret = 0;
-	}
-
 	ret = disable_power_domains(core, IRIS_HW_POWER_DOMAIN);
 	if (ret) {
 		dev_err(core->dev, "disable power domain vcodec failed\n");
@@ -321,7 +305,7 @@ disable_power:
 		ret = 0;
 	}
 
-	return 0;
+	return ret;
 }
 
 static int power_off_iris3_controller(struct iris_core *core)
@@ -332,6 +316,14 @@ static int power_off_iris3_controller(struct iris_core *core)
 	if (ret)
 		goto disable_power;
 
+	ret = write_register_masked(core, AON_WRAPPER_MVP_NOC_LPI_CONTROL,
+				    0x1, BIT(0));
+	if (ret)
+		goto disable_power;
+
+	ret = read_register_with_poll_timeout(core, AON_WRAPPER_MVP_NOC_LPI_STATUS,
+					      0x1, 0x1, 200, 2000);
+
 	ret = write_register_masked(core, WRAPPER_IRIS_CPU_NOC_LPI_CONTROL,
 				    0x1, BIT(0));
 	if (ret)
@@ -339,10 +331,6 @@ static int power_off_iris3_controller(struct iris_core *core)
 
 	ret = read_register_with_poll_timeout(core, WRAPPER_IRIS_CPU_NOC_LPI_STATUS,
 					      0x1, 0x1, 200, 2000);
-	if (ret) {
-		pr_debug("%s:%d timeout\n", __func__, __LINE__);
-		goto disable_power;
-	}
 
 	ret = write_register(core, WRAPPER_DEBUG_BRIDGE_LPI_CONTROL_IRIS3, 0x0);
 	if (ret)
@@ -350,10 +338,6 @@ static int power_off_iris3_controller(struct iris_core *core)
 
 	ret = read_register_with_poll_timeout(core, WRAPPER_DEBUG_BRIDGE_LPI_STATUS_IRIS3,
 					      0xffffffff, 0x0, 200, 2000);
-	if (ret) {
-		pr_debug("%s:%d timeout\n", __func__, __LINE__);
-		goto disable_power;
-	}
 
 	ret = write_register(core, WRAPPER_TZ_CTL_AXI_CLOCK_CONFIG, 0x3);
 	if (ret)
@@ -371,60 +355,17 @@ static int power_off_iris3_controller(struct iris_core *core)
 	if (ret)
 		goto disable_power;
 
-	reset_ahb2axi_bridge(core);
-
-	/* Disable MVP NoC clock */
-	write_register_masked(core, AON_WRAPPER_MVP_NOC_CORE_CLK_CONTROL, NOC_HALT, NOC_HALT);
-
-	/* enable MVP NoC reset */
-	write_register_masked(core, AON_WRAPPER_MVP_NOC_CORE_SW_RESET, SW_RESET, SW_RESET);
-
-	/* poll AON spare register bit0 to become zero with 50ms timeout */
-	ret = read_register_with_poll_timeout(core, AON_WRAPPER_SPARE, BIT(0), 0, 1000, 50000);
-	if (ret) {
-		pr_debug("%s:%d timeout\n", __func__, __LINE__);
-		goto disable_power;
-	}
-
-	/* enable bit(1) to avoid cvp noc xo reset */
-	write_register_masked(core, AON_WRAPPER_SPARE, BIT(1), BIT(1));
-
-	ret = assert_reset_control(core, "xo");
-	if (ret) {
-		dev_err(core->dev, "assert xo failed ret %d\n", ret);
-		ret = 0;
-	}
-
-	/* De-assert MVP NoC reset */
-	write_register_masked(core, AON_WRAPPER_MVP_NOC_CORE_SW_RESET, 0, SW_RESET);
-
-	usleep_range(80, 100);
-	ret = deassert_reset_control(core, "xo");
-	if (ret) {
-		dev_err(core->dev, "deassert xo failed ret %d\n", ret);
-		ret = 0;
-	}
-
-	/* Enable MVP NoC clock */
-	write_register_masked(core, AON_WRAPPER_MVP_NOC_CORE_CLK_CONTROL, 0, NOC_HALT);
-
+disable_power:
 	disable_unprepare_clock(core, "core");
 	if (ret) {
 		dev_err(core->dev, "disable unprepare core_clk failed\n");
 		ret = 0;
 	}
 
-disable_power:
 	/* power down process */
 	ret = disable_power_domains(core, IRIS_CTRL_POWER_DOMAIN);
 	if (ret) {
 		dev_err(core->dev, "disable power domain iris-ctl failed\n");
-		ret = 0;
-	}
-
-	disable_unprepare_clock(core, "iface");
-	if (ret) {
-		dev_err(core->dev, "disable unprepare core_clk failed\n");
 		ret = 0;
 	}
 
@@ -491,10 +432,6 @@ static int power_on_iris3_hardware(struct iris_core *core)
 		return ret;
 
 	ret = prepare_enable_clock(core, "vcodec0_core");
-	if (ret)
-		goto err_disable_power;
-
-	ret = power_domain_set_hwmode(core, IRIS_HW_POWER_DOMAIN, true);
 	if (ret)
 		goto err_disable_power;
 

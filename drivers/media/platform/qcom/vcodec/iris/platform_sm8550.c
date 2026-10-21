@@ -1058,7 +1058,7 @@ static const struct clock_info sm8550_clk_table[] = {
 	{ NULL, "vcodec0_core",    VIDEO_CC_MVS0_CLK,  1 },
 };
 
-static const char * const sm8550_clk_reset_table[] = { "bus", "xo", "core", NULL };
+static const char * const sm8550_clk_reset_table[] = { "bus", NULL };
 
 static const char * const sm8550_pd_table[] = { "venus", "vcodec0" };
 

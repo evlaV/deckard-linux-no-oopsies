@@ -129,11 +129,6 @@ static int init_power_domains(struct iris_core *core)
 	return ret;
 }
 
-int power_domain_set_hwmode(struct iris_core *core, enum platform_pm_domain_type id, bool hwmode)
-{
-	return dev_pm_genpd_set_hwmode(core->pmdomain_tbl->pd_devs[id], hwmode);
-}
-
 int enable_power_domains(struct iris_core *core, enum platform_pm_domain_type id)
 {
 	int ret;
@@ -283,7 +278,7 @@ int vote_buses(struct iris_core *core, unsigned long bus_bw)
 	return ret;
 }
 
-int deassert_reset_control(struct iris_core *core, char *name)
+static int deassert_reset_control(struct iris_core *core)
 {
 	struct reset_info *rcinfo = NULL;
 	int ret = 0;
@@ -293,26 +288,20 @@ int deassert_reset_control(struct iris_core *core, char *name)
 
 	for (i = 0; i < (core->reset_count - 1); i++) {
 		rcinfo = &core->reset_tbl[i];
-		if (!rcinfo->rst)
-			return -EINVAL;
-		if (strcmp(name, rcinfo->name))
-			continue;
 		ret = reset_control_deassert(rcinfo->rst);
 		if (ret) {
 			dev_err(core->dev, "deassert reset control failed. ret = %d\n", ret);
-			return ret;
+			continue;
 		}
-
-		return 0;
 	}
 
-	return -EINVAL;
+	return ret;
 }
 
-int assert_reset_control(struct iris_core *core, char *name)
+static int assert_reset_control(struct iris_core *core)
 {
 	struct reset_info *rcinfo = NULL;
-	int ret = 0;
+	int ret = 0, cnt = 0;
 	u32 i;
 
 	core->reset_count = core->platform_data->clk_rst_tbl_size;
@@ -321,52 +310,39 @@ int assert_reset_control(struct iris_core *core, char *name)
 		rcinfo = &core->reset_tbl[i];
 		if (!rcinfo->rst)
 			return -EINVAL;
-		if (strcmp(name, rcinfo->name))
-			continue;
 
 		ret = reset_control_assert(rcinfo->rst);
 		if (ret) {
 			dev_err(core->dev, "failed to assert reset control %s, ret = %d\n",
 				rcinfo->name, ret);
-			return ret;
+			goto deassert_reset_control;
 		}
+		cnt++;
 
-		return 0;
+		usleep_range(1000, 1100);
 	}
 
-	return -EINVAL;
+	return ret;
+deassert_reset_control:
+	for (i = 0; i < cnt; i++) {
+		rcinfo = &core->reset_tbl[i];
+		reset_control_deassert(rcinfo->rst);
+	}
+
+	return ret;
 }
 
 int reset_ahb2axi_bridge(struct iris_core *core)
 {
 	int ret;
 
-	ret = assert_reset_control(core, "bus");
-	if (ret) {
-		dev_err(core->dev, "failed to assert bus ret=%d\n", ret);
+	ret = assert_reset_control(core);
+	if (ret)
 		return ret;
-	}
-	ret = assert_reset_control(core, "core");
-	if (ret) {
-		dev_err(core->dev, "failed to assert core ret=%d\n", ret);
-		return ret;
-	}
 
-	usleep_range(1000, 1100);
+	ret = deassert_reset_control(core);
 
-	ret = deassert_reset_control(core, "bus");
-	if (ret) {
-		dev_err(core->dev, "failed to deassert bus ret=%d\n", ret);
-		return ret;
-	}
-
-	ret = deassert_reset_control(core, "core");
-	if (ret) {
-		dev_err(core->dev, "failed to deassert core ret=%d\n", ret);
-		return ret;
-	}
-
-	return 0;
+	return ret;
 }
 
 int disable_unprepare_clock(struct iris_core *core, const char *clk_name)
