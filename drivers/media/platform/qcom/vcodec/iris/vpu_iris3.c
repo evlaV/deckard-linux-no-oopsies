@@ -263,7 +263,7 @@ static int power_off_iris3_hardware(struct iris_core *core)
 	if (is_iris3_hw_power_collapsed(core))
 		goto disable_power;
 
-	//dev_err(core->dev, "Video hw is power ON\n");
+	dev_err(core->dev, "Video hw is power ON\n");
 
 	ret = read_register(core, WRAPPER_CORE_CLOCK_CONFIG_IRIS3, &value);
 	if (ret)
