@@ -90,7 +90,7 @@ static int iris_set_clocks(struct iris_inst *inst)
 	// and makes the encoder lag behind even when trying to encode a small load of data
 	// Need to revisit this once we understand why the frequencies are so low
 	// Set it to the turbo_l1 frequency listed in the opp_table
-	freq = 600000000;
+	freq = 533333334;
 	core->power.clk_freq = freq;
 
 	ret = opp_set_rate(core, freq);
