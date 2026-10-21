@@ -299,14 +299,10 @@ static int iris_pm_suspend(struct device *dev)
 		goto unlock;
 	}
 
-	if (list_count_nodes(&core->instances) == 0) {
-		ret = iris_hfi_pm_suspend(core);
-	} else {
-		ret = opp_set_rate(core, 0, false);
-		if (ret)
-			goto unlock;
-		ret = unvote_buses(core);
-	}
+	ret = opp_set_rate(core, 0, false);
+	if (ret)
+		goto unlock;
+	ret = unvote_buses(core);
 
 unlock:
 	mutex_unlock(&core->lock);
@@ -336,21 +332,17 @@ static int iris_pm_resume(struct device *dev)
 		goto unlock;
 	}
 
-	if (list_count_nodes(&core->instances) == 0) {
-		ret = iris_hfi_pm_resume(core);
-	} else {
-		if (core->force_opp)
-			freq = core->force_opp;
-		else
-			freq = core->power.clk_freq ? core->power.clk_freq :
-					      (u32)ULONG_MAX;
+	if (core->force_opp)
+		freq = core->force_opp;
+	else
+		freq = core->power.clk_freq ? core->power.clk_freq :
+				      (u32)ULONG_MAX;
 
-		ret = vote_buses(core, INT_MAX);
-		if (ret)
-			goto unlock;
+	ret = vote_buses(core, INT_MAX);
+	if (ret)
+		goto unlock;
 
-		ret = opp_set_rate(core, freq, false);
-	}
+	ret = opp_set_rate(core, freq, false);
 
 unlock:
 	mutex_unlock(&core->lock);
