@@ -724,7 +724,7 @@ int hfi_packet_sys_interframe_powercollapse(struct iris_core *core,
 	if (ret)
 		return ret;
 
-	payload = HFI_TRUE;
+	payload = 0;// HFI_TRUE;
 
 	ret = hfi_create_packet(pkt, pkt_size,
 				HFI_PROP_INTRA_FRAME_POWER_COLLAPSE,
