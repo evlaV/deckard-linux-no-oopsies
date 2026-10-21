@@ -25,10 +25,7 @@ int opp_set_rate(struct iris_core *core, u64 freq, bool inc)
 	struct dev_pm_opp *opp;
 	int ret;
 
-	if (freq && core->force_opp)
-		opp_freq = core->force_opp;
-	else
-		opp_freq = freq;
+	opp_freq = freq;
 
 	opp = dev_pm_opp_find_freq_ceil(core->dev, &opp_freq);
 	if (IS_ERR(opp)) {
@@ -42,7 +39,7 @@ int opp_set_rate(struct iris_core *core, u64 freq, bool inc)
 	dev_pm_opp_put(opp);
 
 	/* Look for next OPP */
-	if (inc && !core->force_opp) {
+	if (inc) {
 		opp = dev_pm_opp_find_freq_floor(core->dev, &opp_freq);
 		dev_pm_opp_put(opp);
 	}
@@ -52,8 +49,6 @@ int opp_set_rate(struct iris_core *core, u64 freq, bool inc)
 		dev_err(core->dev, "failed to set rate\n");
 		return ret;
 	}
-
-	core->cur_opp = opp_freq;
 
 	return ret;
 }
@@ -411,53 +406,6 @@ int prepare_enable_clock(struct iris_core *core, const char *clk_name)
 	return ret;
 }
 
-static ssize_t opp_force_freq_show(struct device *dev,
-			    struct device_attribute *attr, char *buf)
-{
-	struct iris_core *core = dev_get_drvdata(dev);
-
-	return sysfs_emit_at(buf, 0, "%llu\n", core->force_opp);
-}
-
-static ssize_t opp_force_freq_store(struct device *dev,
-			     struct device_attribute *attr,
-			     const char *buf, size_t size)
-{
-	struct iris_core *core = dev_get_drvdata(dev);
-	int status;
-	u64 freq;
-
-	status = sscanf(buf, "%llu", &freq);
-	if (status < 0 || status == 0)
-		return -EINVAL;
-
-	core->force_opp = freq;
-
-	return size;
-}
-
-static DEVICE_ATTR_RW(opp_force_freq);
-
-static ssize_t opp_cur_freq_show(struct device *dev,
-			    struct device_attribute *attr, char *buf)
-{
-	struct iris_core *core = dev_get_drvdata(dev);
-
-	return sysfs_emit_at(buf, 0, "%llu\n", core->cur_opp);
-}
-
-static DEVICE_ATTR_RO(opp_cur_freq);
-
-static const struct attribute *iris_attrs[] = {
-	&dev_attr_opp_force_freq.attr,
-	&dev_attr_opp_cur_freq.attr,
-	NULL,
-};
-
-static const struct attribute_group iris_attr_group = {
-	.attrs = (struct attribute **)iris_attrs,
-};
-
 int init_resources(struct iris_core *core)
 {
 	int ret;
@@ -475,10 +423,6 @@ int init_resources(struct iris_core *core)
 		return ret;
 
 	ret = init_reset_clocks(core);
-	if (ret)
-		return ret;
-
-	ret = devm_device_add_group(core->dev, &iris_attr_group);
 
 	return ret;
 }

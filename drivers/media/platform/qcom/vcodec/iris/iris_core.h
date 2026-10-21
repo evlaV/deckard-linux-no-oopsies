@@ -119,8 +119,6 @@ struct iris_core {
 	u32					skip_pc_count;
 	bool					power_enabled;
 	struct iris_core_power			power;
-	u64					force_opp;
-	u64					cur_opp;
 };
 
 int iris_core_init(struct iris_core *core);
