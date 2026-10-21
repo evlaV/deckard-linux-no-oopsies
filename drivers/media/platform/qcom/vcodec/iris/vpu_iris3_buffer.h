@@ -66,7 +66,6 @@
 #define SIZE_SLIST_BUF_H265 (BIT(10))
 #define H265_DISPLAY_BUF_SIZE (3072)
 #define H265_NUM_FRM_INFO (48)
-#define SIZE_ONE_SLICE_BUF 256
 
 #define VP9_NUM_FRAME_INFO_BUF 32
 #define VP9_NUM_PROBABILITY_TABLE_BUF (VP9_NUM_FRAME_INFO_BUF + 4)
@@ -1352,7 +1351,7 @@ u32 hfi_buffer_non_comv_h265e(u32 frame_width, u32 frame_height,
 {
 	return hfi_buffer_non_comv_enc(frame_width, frame_height,
 				       num_vpp_pipes_enc, 32,
-				       HFI_CODEC_ENCODE_HEVC) + SIZE_ONE_SLICE_BUF;
+				       HFI_CODEC_ENCODE_HEVC);
 }
 
 static inline
