@@ -813,35 +813,6 @@ unlock:
 	return ret;
 }
 
-static int vidc_expbuf(struct file *filp, void *fh, struct v4l2_exportbuffer *eb)
-{
-	struct video_device *vdev;
-	struct iris_inst *inst;
-	int ret = 0;
-
-	inst = get_vidc_inst(filp, fh);
-	vdev = video_devdata(filp);
-	if (!inst || !eb)
-		return -EINVAL;
-
-	mutex_lock(&inst->lock);
-	if (IS_SESSION_ERROR(inst)) {
-		ret = -EBUSY;
-		goto unlock;
-	}
-
-	if (eb->type == INPUT_MPLANE) {
-		ret = vb2_expbuf(inst->vb2q_src, eb);
-	} else if (eb->type == OUTPUT_MPLANE) {
-		ret = vb2_expbuf(inst->vb2q_dst, eb);
-	}
-
-unlock:
-	mutex_unlock(&inst->lock);
-
-	return ret;
-}
-
 static int vidc_streamon(struct file *filp, void *fh, enum v4l2_buf_type type)
 {
 	struct iris_inst *inst;
@@ -1423,7 +1394,6 @@ static const struct v4l2_ioctl_ops v4l2_ioctl_ops_dec = {
 	.vidioc_prepare_buf             = vidc_prepare_buf,
 	.vidioc_qbuf                    = vidc_qbuf,
 	.vidioc_dqbuf                   = vidc_dqbuf,
-	.vidioc_expbuf 			= vidc_expbuf,
 	.vidioc_streamon                = vidc_streamon,
 	.vidioc_streamoff               = vidc_streamoff,
 	.vidioc_querycap                = vidc_querycap,
@@ -1453,7 +1423,6 @@ static const struct v4l2_ioctl_ops v4l2_ioctl_ops_enc = {
 	.vidioc_prepare_buf             = vidc_prepare_buf,
 	.vidioc_qbuf                    = vidc_qbuf,
 	.vidioc_dqbuf                   = vidc_dqbuf,
-	.vidioc_expbuf 			= vidc_expbuf,
 	.vidioc_streamon                = vidc_streamon,
 	.vidioc_streamoff               = vidc_streamoff,
 	.vidioc_querycap                = vidc_querycap,
