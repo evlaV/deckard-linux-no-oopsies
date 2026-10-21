@@ -20,8 +20,8 @@ static int init_iris_isr(struct iris_core *core)
 {
 	int ret;
 
-	ret = devm_request_threaded_irq(core->dev, core->irq, NULL,
-					iris_hfi_isr_handler, IRQF_ONESHOT| IRQF_TRIGGER_HIGH, "iris", core);
+	ret = devm_request_threaded_irq(core->dev, core->irq, iris_hfi_isr,
+					iris_hfi_isr_handler, IRQF_TRIGGER_HIGH, "iris", core);
 	if (ret) {
 		dev_err(core->dev, "%s: Failed to allocate iris IRQ\n", __func__);
 		return ret;
