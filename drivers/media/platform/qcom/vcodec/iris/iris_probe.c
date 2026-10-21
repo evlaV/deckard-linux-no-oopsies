@@ -196,6 +196,18 @@ static int iris_probe(struct platform_device *pdev)
 		goto err_runtime_disable;
 	}
 
+	ret = v4l2_device_register(dev, &core->v4l2_dev);
+	if (ret)
+		goto err_runtime_disable;
+
+	ret = iris_register_video_device(core, DECODER);
+	if (ret)
+		goto err_v4l2_unreg;
+
+	ret = iris_register_video_device(core, ENCODER);
+	if (ret)
+		goto err_vdev_unreg_dec;
+
 	platform_set_drvdata(pdev, core);
 
 	dma_mask = core->cap[DMA_MASK].value;
@@ -234,18 +246,6 @@ static int iris_probe(struct platform_device *pdev)
 		dev_err_probe(core->dev, ret, "%s: failed to put runtime pm\n", __func__);
 		goto err_core_deinit;
 	}
-
-	ret = v4l2_device_register(dev, &core->v4l2_dev);
-	if (ret)
-		goto err_runtime_disable;
-
-	ret = iris_register_video_device(core, DECODER);
-	if (ret)
-		goto err_v4l2_unreg;
-
-	ret = iris_register_video_device(core, ENCODER);
-	if (ret)
-		goto err_vdev_unreg_dec;
 
 	return ret;
 
