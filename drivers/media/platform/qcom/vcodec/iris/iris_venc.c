@@ -259,14 +259,11 @@ static int venc_s_fmt_input(struct iris_inst *inst, struct v4l2_format *f)
 	inst->cap[PIX_FMTS].value = pix_fmt;
 
 	width = f->fmt.pix_mp.width;
+	height = f->fmt.pix_mp.height;
 
-	if (pix_fmt == FMT_TP10C) {
-		bytesperline = ALIGN(ALIGN(f->fmt.pix_mp.width, 192) * 4 / 3, 256);
-		height = ALIGN(f->fmt.pix_mp.height, 16);
-	} else {
-		bytesperline = ALIGN(f->fmt.pix_mp.width, 128);
-		height = ALIGN(f->fmt.pix_mp.height, 32);
-	}
+	bytesperline = pix_fmt == FMT_TP10C ?
+		ALIGN(ALIGN(f->fmt.pix_mp.width, 192) * 4 / 3, 256) :
+		ALIGN(f->fmt.pix_mp.width, 128);
 
 	fmt = inst->fmt_src;
 	fmt->type = INPUT_MPLANE;
