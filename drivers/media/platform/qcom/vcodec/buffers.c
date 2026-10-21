@@ -56,9 +56,9 @@ u32 video_raw_buffer_size(u32 colorformat,
 		break;
 	case V4L2_PIX_FMT_QC10C:
 		y_stride =
-			ALIGN(roundup(pix_width, 192) * 4 / 3, 256);
+			ALIGN(ALIGN(pix_width, 192) * 4 / 3, 256);
 		uv_stride =
-			ALIGN(roundup(pix_width, 192) * 4 / 3, 256);
+			ALIGN(ALIGN(pix_width, 192) * 4 / 3, 256);
 		y_sclines =
 			ALIGN(pix_height, 16);
 		uv_sclines =

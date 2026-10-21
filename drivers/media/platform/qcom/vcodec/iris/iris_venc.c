@@ -266,7 +266,7 @@ static int venc_s_fmt_input(struct iris_inst *inst, struct v4l2_format *f)
 		height = ALIGN(f->fmt.pix_mp.height, 32);
 		break;
 	case FMT_TP10C:
-		bytesperline = ALIGN(roundup(f->fmt.pix_mp.width, 192) * 4 / 3, 256);
+		bytesperline = ALIGN(ALIGN(f->fmt.pix_mp.width, 192) * 4 / 3, 256);
 		height = ALIGN(f->fmt.pix_mp.height, 16);
 		break;
 	case FMT_RGBA8:
@@ -630,7 +630,7 @@ static int venc_set_stride_scanline(struct iris_inst *inst)
 		stride_y = ALIGN(inst->fmt_src->fmt.pix_mp.width, 64);
 		scanline_y = ALIGN(inst->fmt_src->fmt.pix_mp.height, color_format == FMT_RGBA8 ? 32 : 16);
 	} else if (color_format == FMT_TP10C) {
-		stride_y = roundup(inst->fmt_src->fmt.pix_mp.width, 192);
+		stride_y = ALIGN(inst->fmt_src->fmt.pix_mp.width, 192);
 		scanline_y = ALIGN(inst->fmt_src->fmt.pix_mp.height, 16);
 	} else {
 		stride_y = ALIGN(inst->fmt_src->fmt.pix_mp.width, 128);
