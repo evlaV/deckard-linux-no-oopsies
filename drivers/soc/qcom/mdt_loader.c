@@ -227,7 +227,6 @@ void *qcom_mdt_read_metadata(const struct firmware *fw, size_t *data_len,
 }
 EXPORT_SYMBOL_GPL(qcom_mdt_read_metadata);
 
-#ifdef CONFIG_QCOM_SCM
 static int __qcom_mdt_pas_init(struct device *dev, const struct firmware *fw,
 			       const char *fw_name, int pas_id, phys_addr_t mem_phys,
 			       struct qcom_scm_pas_context *ctx)
@@ -292,7 +291,6 @@ static int __qcom_mdt_pas_init(struct device *dev, const struct firmware *fw,
 out:
 	return ret;
 }
-#endif
 
 static bool qcom_mdt_bins_are_split(const struct firmware *fw)
 {
@@ -439,7 +437,6 @@ int qcom_mdt_load_no_init(struct device *dev, const struct firmware *fw,
 }
 EXPORT_SYMBOL_GPL(qcom_mdt_load_no_init);
 
-#ifdef CONFIG_QCOM_SCM
 /**
  * qcom_mdt_load() - load the firmware which header is loaded as fw
  * @dev:	device handle to associate resources with
@@ -468,9 +465,7 @@ int qcom_mdt_load(struct device *dev, const struct firmware *fw,
 				     mem_size, reloc_base);
 }
 EXPORT_SYMBOL_GPL(qcom_mdt_load);
-#endif
 
-#ifdef CONFIG_QCOM_SCM
 /**
  * qcom_mdt_pas_load - Loads and authenticates the metadata of the firmware
  * (typically contained in the .mdt file), followed by loading the actual
@@ -501,7 +496,6 @@ int qcom_mdt_pas_load(struct qcom_scm_pas_context *ctx, const struct firmware *f
 				     ctx->mem_size, reloc_base);
 }
 EXPORT_SYMBOL_GPL(qcom_mdt_pas_load);
-#endif
 
 MODULE_DESCRIPTION("Firmware parser for Qualcomm MDT format");
 MODULE_LICENSE("GPL v2");

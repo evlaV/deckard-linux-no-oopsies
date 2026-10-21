@@ -5,13 +5,6 @@
 
 #include "hfi_queue.h"
 
-static void venus_dump_packet(const void *packet)
-{
-	size_t pkt_size = *(u32 *)packet;
-
-	print_hex_dump(KERN_ERR, "", DUMP_PREFIX_OFFSET, 16, 1, packet, pkt_size, true);
-}
-
 int write_queue(struct iface_q_info *qinfo, void *packet,
 		u32 packet_size, u32 *rx_req)
 {
@@ -22,9 +15,6 @@ int write_queue(struct iface_q_info *qinfo, void *packet,
 	queue = qinfo->qhdr;
 	if (!queue)
 		return -EINVAL;
-
-	//printk("write_queue:\n");
-	//venus_dump_packet(packet);
 
 	if (!packet_size || packet_size > qinfo->q_array.size)
 		return -EINVAL;
@@ -133,9 +123,6 @@ int read_queue(struct iface_q_info *qinfo, void *packet, u32 *tx_req)
 	*tx_req = queue->qhdr_tx_req ? 1 : 0;
 	/* Ensure qhdr is updated in main memory */
 	mb();
-
-	//printk("read_queue:\n");
-	//venus_dump_packet(packet);
 
 	return ret;
 }

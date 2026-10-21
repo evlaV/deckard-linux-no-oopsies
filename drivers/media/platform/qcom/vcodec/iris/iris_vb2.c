@@ -262,7 +262,6 @@ exit:
 	}
 }
 
-#if 0
 void *iris_vb2_attach_dmabuf(struct vb2_buffer *vb, struct device *dev,
 			     struct dma_buf *dbuf, unsigned long size)
 {
@@ -456,4 +455,3 @@ int iris_vb2_mmap(void *buf_priv, struct vm_area_struct *vma)
 {
 	return 0;
 }
-#endif

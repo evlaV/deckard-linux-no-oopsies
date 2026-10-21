@@ -12,7 +12,6 @@
 #include "iris_hfi_response.h"
 #include "iris_helpers.h"
 #include "vpu_common.h"
-#include "firmware_no_tz.h"
 
 static int iris_hfi_queue_cmd_write(struct iris_core *core, void *pkt)
 {
@@ -132,8 +131,10 @@ static int sys_image_version(struct iris_core *core)
 int iris_hfi_core_init(struct iris_core *core)
 {
 	u32 cp_nonpixel_start, cp_nonpixel_size;
+	phys_addr_t mem_phys = 0;
 	u32 cp_start, cp_size;
 	const char *fw_name;
+	size_t mem_size = 0;
 	u32 pas_id;
 	int ret;
 
@@ -152,23 +153,17 @@ int iris_hfi_core_init(struct iris_core *core)
 		goto error;
 
 	core->use_tz = use_tz(core->dev);
-	if (!core->use_tz) {
-		ret = init_fw_no_tz(core);
-		if (ret)
-			goto error_power_off;
-	}
+	if (!core->use_tz)
+		goto error_power_off;
 
 	pas_id = core->platform_data->pas_id;
 	fw_name = core->platform_data->fwname;
-	ret = load_fw(core->dev, fw_name, &core->fw.mem_phys, &core->fw.mem_size,
+	ret = load_fw(core->dev, fw_name, &mem_phys, &mem_size,
 		      pas_id, core->use_tz);
 	if (ret)
 		goto error_power_off;
 
-	if (core->use_tz)
-		ret = auth_reset_fw(pas_id);
-	else
-		ret = auth_reset_fw_no_tz(core, core->fw.mem_phys, core->fw.mem_size);
+	ret = auth_reset_fw(pas_id);
 	if (ret)
 		goto error_power_off;
 
@@ -176,12 +171,10 @@ int iris_hfi_core_init(struct iris_core *core)
 	cp_size = core->cap[CP_SIZE].value;
 	cp_nonpixel_start = core->cap[CP_NONPIXEL_START].value;
 	cp_nonpixel_size = core->cap[CP_NONPIXEL_SIZE].value;
-	if (core->use_tz) {
-		ret = protect_secure_region(cp_start, cp_size, cp_nonpixel_start,
-					    cp_nonpixel_size, pas_id);
-		if (ret)
-			goto error_power_off;
-	}
+	ret = protect_secure_region(cp_start, cp_size, cp_nonpixel_start,
+				    cp_nonpixel_size, pas_id);
+	if (ret)
+		goto error_power_off;
 
 	ret = call_vpu_op(core, boot_firmware, core);
 	if (ret)
@@ -216,10 +209,7 @@ int iris_hfi_core_deinit(struct iris_core *core)
 	if (core->state == IRIS_CORE_DEINIT)
 		return 0;
 
-	if (core->use_tz)
-		unload_fw(core->platform_data->pas_id);
-	else
-		unload_fw_no_tz(core);
+	unload_fw(core->platform_data->pas_id);
 
 	iris_power_off(core);
 
@@ -867,10 +857,7 @@ int iris_hfi_pm_suspend(struct iris_core *core)
 		return -EAGAIN;
 	}
 
-	if (core->use_tz)
-		ret = set_hw_state(false);
-	else
-		ret = set_hw_state_no_tz(core, false);
+	ret = set_hw_state(false);
 	if (ret)
 		return ret;
 
@@ -901,10 +888,7 @@ int iris_hfi_pm_resume(struct iris_core *core)
 	if (ret)
 		goto error;
 
-	if (core->use_tz)
-		ret = set_hw_state(true);
-	else
-		ret = set_hw_state_no_tz(core, true);
+	ret = set_hw_state(true);
 	if (ret)
 		goto err_power_off;
 
@@ -923,10 +907,7 @@ int iris_hfi_pm_resume(struct iris_core *core)
 	return ret;
 
 err_suspend_hw:
-	if (core->use_tz)
-		ret = set_hw_state(false);
-	else
-		ret = set_hw_state_no_tz(core, false);
+	set_hw_state(false);
 err_power_off:
 	iris_power_off(core);
 error:

@@ -1,7 +1,6 @@
 iris-objs += ../hfi_queue.o ../firmware.o ../buffers.o
 
-iris-objs += firmware_no_tz.o \
-             iris_probe.o \
+iris-objs += iris_probe.o \
              iris_state.o \
              iris_core.o \
              iris_vidc.o \

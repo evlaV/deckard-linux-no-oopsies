@@ -1157,7 +1157,7 @@ struct platform_data sm8550_data = {
 
 	.reg_prst_tbl = sm8550_reg_preset_table,
 	.reg_prst_tbl_size = ARRAY_SIZE(sm8550_reg_preset_table),
-	.fwname = "vpu33_4v.mbn",
+	.fwname = "vpu30_4v.mbn",
 	.pas_id = 9,
 
 	.core_data = core_data_sm8550,

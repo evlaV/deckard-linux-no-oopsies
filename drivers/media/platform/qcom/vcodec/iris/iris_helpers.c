@@ -4,7 +4,6 @@
  */
 
 #include <linux/pm_runtime.h>
-#include <media/videobuf2-dma-contig.h>
 
 #include "hfi_defines.h"
 #include "iris_core.h"
@@ -670,8 +669,7 @@ static int iris_flush_deferred_buffers(struct iris_inst *inst,
 		return -EINVAL;
 
 	list_for_each_entry_safe(buf, dummy, &buffers->list, list) {
-		// if (buf->attr & BUF_ATTR_DEFERRED) {
-		if (1) {
+		if (buf->attr & BUF_ATTR_DEFERRED) {
 			if (!(buf->attr & BUF_ATTR_BUFFER_DONE)) {
 				buf->attr |= BUF_ATTR_BUFFER_DONE;
 				buf->data_size = 0;
@@ -694,6 +692,14 @@ static int iris_flush_read_only_buffers(struct iris_inst *inst,
 	list_for_each_entry_safe(ro_buf, dummy, &inst->buffers.read_only.list, list) {
 		if (ro_buf->attr & BUF_ATTR_READ_ONLY)
 			continue;
+		if (ro_buf->attach && ro_buf->sg_table)
+			dma_buf_unmap_attachment(ro_buf->attach, ro_buf->sg_table,
+						 DMA_BIDIRECTIONAL);
+		if (ro_buf->attach && ro_buf->dmabuf)
+			dma_buf_detach(ro_buf->dmabuf, ro_buf->attach);
+		ro_buf->attach = NULL;
+		ro_buf->sg_table = NULL;
+		ro_buf->dmabuf = NULL;
 		ro_buf->device_addr = 0x0;
 		list_del_init(&ro_buf->list);
 		kfree(ro_buf);
@@ -730,6 +736,10 @@ void iris_destroy_buffers(struct iris_inst *inst)
 	}
 
 	list_for_each_entry_safe(buf, dummy, &inst->buffers.read_only.list, list) {
+		if (buf->attach && buf->sg_table)
+			dma_buf_unmap_attachment(buf->attach, buf->sg_table, DMA_BIDIRECTIONAL);
+		if (buf->attach && buf->dmabuf)
+			dma_buf_detach(buf->dmabuf, buf->attach);
 		list_del_init(&buf->list);
 		kfree(buf);
 	}
@@ -739,6 +749,11 @@ void iris_destroy_buffers(struct iris_inst *inst)
 		if (!buffers)
 			continue;
 		list_for_each_entry_safe(buf, dummy, &buffers->list, list) {
+			if (buf->attach && buf->sg_table)
+				dma_buf_unmap_attachment(buf->attach, buf->sg_table,
+							 DMA_BIDIRECTIONAL);
+			if (buf->attach && buf->dmabuf)
+				dma_buf_detach(buf->dmabuf, buf->attach);
 			list_del_init(&buf->list);
 			kfree(buf);
 		}
@@ -1014,13 +1029,13 @@ int vb2_buffer_to_driver(struct vb2_buffer *vb2, struct iris_buffer *buf)
 
 	vbuf = to_vb2_v4l2_buffer(vb2);
 
+	buf->fd = vb2->planes[0].m.fd;
 	buf->data_offset = vb2->planes[0].data_offset;
 	buf->data_size = vb2->planes[0].bytesused - vb2->planes[0].data_offset;
 	buf->buffer_size = vb2->planes[0].length;
 	buf->timestamp = vb2->timestamp;
 	buf->flags = vbuf->flags;
 	buf->attr = 0;
-	buf->device_addr = vb2_dma_contig_plane_dma_addr(vb2, 0);
 
 	return 0;
 }

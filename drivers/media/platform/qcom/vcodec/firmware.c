@@ -30,9 +30,6 @@ bool use_tz(struct device *core_dev)
 int protect_secure_region(u32 cp_start, u32 cp_size, u32 cp_nonpixel_start,
 			  u32 cp_nonpixel_size, u32 pas_id)
 {
-	WARN_ON(1);
-	return -ENOENT;
-
 	int ret;
 	/*
 	 * Clues for porting using downstream data:
@@ -64,7 +61,8 @@ int load_fw(struct device *dev, const char *fw_name, phys_addr_t *mem_phys,
 	ssize_t fw_size = 0;
 	int ret;
 
-	if (!IS_ENABLED(CONFIG_QCOM_MDT_LOADER))
+	if (!IS_ENABLED(CONFIG_QCOM_MDT_LOADER) ||
+	    (use_tz && !qcom_scm_is_available()))
 		return -EPROBE_DEFER;
 
 	if (!fw_name || !(*fw_name))
@@ -116,7 +114,7 @@ int load_fw(struct device *dev, const char *fw_name, phys_addr_t *mem_phys,
 		goto err_release_fw;
 	}
 
-	if (0)
+	if (use_tz)
 		ret = qcom_mdt_load(dev, firmware, fw_name, pas_id, mem_virt,
 				    *mem_phys, *mem_size, NULL);
 	else
@@ -135,18 +133,15 @@ err_release_fw:
 
 int auth_reset_fw(u32 pas_id)
 {
-	WARN_ON(1);
-	return -ENOENT; // qcom_scm_pas_auth_and_reset(pas_id);
+	return qcom_scm_pas_auth_and_reset(pas_id);
 }
 
 void unload_fw(u32 pas_id)
 {
-	WARN_ON(1);
-	//qcom_scm_pas_shutdown(pas_id);
+	qcom_scm_pas_shutdown(pas_id);
 }
 
 int set_hw_state(bool resume)
 {
-	WARN_ON(1);
-	return -ENOENT; //return qcom_scm_set_remote_state(resume, 0);
+	return qcom_scm_set_remote_state(resume, 0);
 }

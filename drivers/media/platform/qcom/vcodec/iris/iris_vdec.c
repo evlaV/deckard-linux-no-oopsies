@@ -44,7 +44,7 @@ int vdec_inst_init(struct iris_inst *inst)
 
 	f = inst->fmt_dst;
 	f->type = OUTPUT_MPLANE;
-	f->fmt.pix_mp.pixelformat = V4L2_PIX_FMT_NV12;
+	f->fmt.pix_mp.pixelformat = V4L2_PIX_FMT_QC08C;
 	f->fmt.pix_mp.width = ALIGN(DEFAULT_WIDTH, 128);
 	f->fmt.pix_mp.height = ALIGN(DEFAULT_HEIGHT, 32);
 	f->fmt.pix_mp.num_planes = 1;

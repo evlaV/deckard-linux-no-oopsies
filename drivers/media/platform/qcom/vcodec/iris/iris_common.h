@@ -104,14 +104,19 @@ struct iris_buffer {
 	struct iris_inst		*inst;
 	enum iris_buffer_type		type;
 	u32				index;
+	int				fd;
 	u32				buffer_size;
 	u32				data_offset;
 	u32				data_size;
 	u64				device_addr;
 	void				*kvaddr;
+	unsigned long			dma_attrs;
 	u32				flags;
 	u64				timestamp;
 	enum iris_buffer_attributes	attr;
+	void				*dmabuf;
+	struct sg_table			*sg_table;
+	struct dma_buf_attachment	*attach;
 };
 
 struct subscription_params {

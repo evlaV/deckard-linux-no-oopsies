@@ -455,9 +455,6 @@ int iris_get_internal_buffers(struct iris_inst *inst,
 	return ret;
 }
 
-// dma_attrs for internal buffers
-#define DMA_ATTRS (DMA_ATTR_WRITE_COMBINE | DMA_ATTR_NO_KERNEL_MAPPING)
-
 static int iris_create_internal_buffer(struct iris_inst *inst,
 				       enum iris_buffer_type buffer_type, u32 index)
 {
@@ -482,10 +479,11 @@ static int iris_create_internal_buffer(struct iris_inst *inst,
 	buffer->type = buffer_type;
 	buffer->index = index;
 	buffer->buffer_size = buffers->size;
+	buffer->dma_attrs = DMA_ATTR_WRITE_COMBINE | DMA_ATTR_NO_KERNEL_MAPPING;
 	list_add_tail(&buffer->list, &buffers->list);
 
 	buffer->kvaddr = dma_alloc_attrs(core->dev, buffer->buffer_size,
-					 &buffer->device_addr, GFP_KERNEL, DMA_ATTRS);
+					 &buffer->device_addr, GFP_KERNEL, buffer->dma_attrs);
 
 	if (!buffer->kvaddr)
 		return -ENOMEM;
@@ -659,7 +657,7 @@ int iris_destroy_internal_buffer(struct iris_inst *inst,
 		if (buf->device_addr == buffer->device_addr) {
 			list_del(&buf->list);
 			dma_free_attrs(core->dev, buf->buffer_size, buf->kvaddr,
-				       buf->device_addr, DMA_ATTRS);
+				       buf->device_addr, buf->dma_attrs);
 			buf->kvaddr = NULL;
 			buf->device_addr = 0;
 			kfree(buf);

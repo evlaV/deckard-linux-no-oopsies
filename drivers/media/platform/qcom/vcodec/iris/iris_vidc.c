@@ -6,7 +6,6 @@
 #include <linux/videodev2.h>
 #include <media/v4l2-event.h>
 #include <media/v4l2-ioctl.h>
-#include <media/videobuf2-dma-contig.h>
 
 #include "iris_buffer.h"
 #include "iris_common.h"
@@ -22,16 +21,6 @@
 
 #define VIDC_DRV_NAME "iris_driver"
 #define VIDC_BUS_NAME "platform:iris_bus"
-
-#define DST_QUEUE_OFF_BASE	(1 << 30)
-
-static void adjust_dst_offset(struct v4l2_buffer *buf)
-{
-	unsigned int i;
-
-	for (i = 0; i < buf->length; ++i)
-		buf->m.planes[i].m.mem_offset += DST_QUEUE_OFF_BASE;
-}
 
 static int vidc_v4l2_fh_init(struct iris_inst *inst)
 {
@@ -79,8 +68,8 @@ static int vb2q_init(struct iris_inst *inst,
 	q->ops = core->vb2_ops;
 	q->mem_ops = core->vb2_mem_ops;
 	q->drv_priv = inst;
-	q->buf_struct_size = sizeof(struct vb2_v4l2_buffer);
 	q->copy_timestamp = 1;
+	q->min_buffers_needed = 0;
 	return vb2_queue_init(q);
 }
 
@@ -380,26 +369,6 @@ static __poll_t vidc_poll(struct file *filp, struct poll_table_struct *pt)
 	return poll;
 }
 
-static int vidc_mmap(struct file *filp, struct vm_area_struct *vma)
-{
-	struct iris_inst *inst;
-	unsigned long offset = vma->vm_pgoff << PAGE_SHIFT;
-	struct vb2_queue *vq;
-
-	inst = get_vidc_inst(filp, NULL);
-	if (!inst)
-		return -ENODEV;
-
-	if (offset < DST_QUEUE_OFF_BASE) {
-		vq = inst->vb2q_src;
-	} else {
-		vq = inst->vb2q_dst;
-		vma->vm_pgoff -= (DST_QUEUE_OFF_BASE >> PAGE_SHIFT);
-	}
-
-	return vb2_mmap(vq, vma);
-}
-
 static int vidc_enum_fmt(struct file *filp, void *fh, struct v4l2_fmtdesc *f)
 {
 	struct iris_inst *inst;
@@ -680,8 +649,6 @@ static int vidc_querybuf(struct file *filp, void *fh, struct v4l2_buffer *b)
 	}
 
 	ret = vb2_querybuf(vb2q, b);
-	if (b->type == OUTPUT_MPLANE)
-		adjust_dst_offset(b);
 
 unlock:
 	mutex_unlock(&inst->lock);
@@ -746,8 +713,6 @@ static int vidc_prepare_buf(struct file *filp, void *fh, struct v4l2_buffer *b)
 	}
 
 	ret = vb2_prepare_buf(vb2q, vdev->v4l2_dev->mdev, b);
-	if (b->type == OUTPUT_MPLANE)
-		adjust_dst_offset(b);
 
 unlock:
 	mutex_unlock(&inst->lock);
@@ -772,12 +737,10 @@ static int vidc_qbuf(struct file *filp, void *fh, struct v4l2_buffer *b)
 		goto unlock;
 	}
 
-	if (b->type == INPUT_MPLANE) {
+	if (b->type == INPUT_MPLANE)
 		ret = vb2_qbuf(inst->vb2q_src, vdev->v4l2_dev->mdev, b);
-	} else if (b->type == OUTPUT_MPLANE) {
+	else if (b->type == OUTPUT_MPLANE)
 		ret = vb2_qbuf(inst->vb2q_dst, vdev->v4l2_dev->mdev, b);
-		adjust_dst_offset(b);
-	}
 
 unlock:
 	mutex_unlock(&inst->lock);
@@ -800,12 +763,10 @@ static int vidc_dqbuf(struct file *filp, void *fh, struct v4l2_buffer *b)
 		goto unlock;
 	}
 
-	if (b->type == INPUT_MPLANE) {
+	if (b->type == INPUT_MPLANE)
 		ret = vb2_dqbuf(inst->vb2q_src, b, true);
-	} else if (b->type == OUTPUT_MPLANE) {
+	else if (b->type == OUTPUT_MPLANE)
 		ret = vb2_dqbuf(inst->vb2q_dst, b, true);
-		adjust_dst_offset(b);
-	}
 
 unlock:
 	mutex_unlock(&inst->lock);
@@ -1368,7 +1329,6 @@ static struct v4l2_file_operations v4l2_file_ops = {
 	.release                        = vidc_close,
 	.unlocked_ioctl                 = video_ioctl2,
 	.poll                           = vidc_poll,
-	.mmap                           = vidc_mmap,
 };
 
 static const struct vb2_ops iris_vb2_ops = {
@@ -1376,6 +1336,16 @@ static const struct vb2_ops iris_vb2_ops = {
 	.start_streaming                = iris_vb2_start_streaming,
 	.stop_streaming                 = iris_vb2_stop_streaming,
 	.buf_queue                      = iris_vb2_buf_queue,
+};
+
+static struct vb2_mem_ops iris_vb2_mem_ops = {
+	.alloc                          = iris_vb2_alloc,
+	.put                            = iris_vb2_put,
+	.mmap                           = iris_vb2_mmap,
+	.attach_dmabuf                  = iris_vb2_attach_dmabuf,
+	.detach_dmabuf                  = iris_vb2_detach_dmabuf,
+	.map_dmabuf                     = iris_vb2_map_dmabuf,
+	.unmap_dmabuf                   = iris_vb2_unmap_dmabuf,
 };
 
 static const struct v4l2_ioctl_ops v4l2_ioctl_ops_dec = {
@@ -1442,7 +1412,7 @@ int init_ops(struct iris_core *core)
 {
 	core->v4l2_file_ops = &v4l2_file_ops;
 	core->vb2_ops = &iris_vb2_ops;
-	core->vb2_mem_ops = &vb2_dma_contig_memops;
+	core->vb2_mem_ops = &iris_vb2_mem_ops;
 	core->v4l2_ioctl_ops_dec = &v4l2_ioctl_ops_dec;
 	core->v4l2_ioctl_ops_enc = &v4l2_ioctl_ops_enc;
 	return 0;

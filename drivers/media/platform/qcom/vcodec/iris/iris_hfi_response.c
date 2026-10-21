@@ -332,6 +332,8 @@ static int handle_read_only_buffer(struct iris_inst *inst,
 		ro_buf->index = -1;
 		ro_buf->inst = inst;
 		ro_buf->type = buf->type;
+		ro_buf->fd = buf->fd;
+		ro_buf->dmabuf = buf->dmabuf;
 		ro_buf->device_addr = buf->device_addr;
 		ro_buf->data_offset = buf->data_offset;
 		INIT_LIST_HEAD(&ro_buf->list);
@@ -756,7 +758,7 @@ static int handle_dpb_list_property(struct iris_inst *inst,
 
 	payload_size = pkt->size - sizeof(*pkt);
 	payload_start = (u8 *)((u8 *)pkt + sizeof(*pkt));
-	memset(inst->dpb_list_payload, 0, MAX_DPB_LIST_PAYLOAD_SIZE);
+	memset(inst->dpb_list_payload, 0, MAX_DPB_LIST_ARRAY_SIZE);
 
 	if (payload_size > MAX_DPB_LIST_PAYLOAD_SIZE) {
 		iris_inst_change_state(inst, IRIS_INST_ERROR);
@@ -1087,7 +1089,6 @@ void iris_flush_debug_queue(struct iris_core *core,
 
 		packet[pkt->size] = '\0';
 		log = (u8 *)packet + sizeof(*pkt) + 1;
-		//dev_warn(core->dev, "%s", log);
 		dev_dbg(core->dev, "%s", log);
 	}
 

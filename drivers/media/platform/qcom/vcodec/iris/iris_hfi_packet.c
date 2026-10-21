@@ -587,32 +587,6 @@ int hfi_packet_sys_init(struct iris_core *core,
 	if (ret)
 		goto error;
 
-#if 0
-	payload = 0;
-	ret = hfi_create_packet(pkt, pkt_size,
-				HFI_PROP_DEBUG_CONFIG,
-				HFI_HOST_FLAGS_NONE,
-				HFI_PAYLOAD_U32_ENUM,
-				HFI_PORT_NONE,
-				core->packet_id++,
-				&payload,
-				sizeof(u32));
-	if (ret)
-		goto error;
-
-	payload = 0xfff;
-	ret = hfi_create_packet(pkt, pkt_size,
-				HFI_PROP_DEBUG_LOG_LEVEL,
-				HFI_HOST_FLAGS_NONE,
-				HFI_PAYLOAD_U32_ENUM,
-				HFI_PORT_NONE,
-				core->packet_id++,
-				&payload,
-				sizeof(u32));
-	if (ret)
-		goto error;
-#endif
-
 	return ret;
 
 error:
@@ -718,7 +692,7 @@ int hfi_packet_sys_interframe_powercollapse(struct iris_core *core,
 	if (ret)
 		return ret;
 
-	payload = 0;// HFI_TRUE;
+	payload = HFI_TRUE;
 
 	ret = hfi_create_packet(pkt, pkt_size,
 				HFI_PROP_INTRA_FRAME_POWER_COLLAPSE,

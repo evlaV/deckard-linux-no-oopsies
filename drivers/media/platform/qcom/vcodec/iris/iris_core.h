@@ -82,7 +82,7 @@ struct iris_core {
 	struct reset_info			*reset_tbl;
 	u32					reset_count;
 	const struct vb2_ops			*vb2_ops;
-	const struct vb2_mem_ops		*vb2_mem_ops;
+	struct vb2_mem_ops			*vb2_mem_ops;
 	enum iris_core_state			state;
 	struct mem_desc				iface_q_table;
 	struct iface_q_info			command_queue;
@@ -91,13 +91,6 @@ struct iris_core {
 	struct mem_desc				sfr;
 	struct mutex				lock; /* lock for core structure */
 	unsigned int				use_tz;
-	struct video_firmware {
-		struct device *dev;
-		struct iommu_domain *iommu_domain;
-		size_t mapped_mem_size;
-		phys_addr_t mem_phys;
-		size_t mem_size;
-	} fw;
 	u8					*packet;
 	u32					packet_size;
 	u8					*response_packet;

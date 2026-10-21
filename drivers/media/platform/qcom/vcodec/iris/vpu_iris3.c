@@ -189,8 +189,6 @@ static int boot_firmware_iris3(struct iris_core *core)
 
 	ret = write_register(core, CPU_CS_X2RPMH_IRIS3, 0x0);
 
-	ret = write_register(core, 0xB0084, 0); // WRAPPER_CORE_POWER_CONTROL (CORE_PWR_DISABLE=0)
-
 	return ret;
 }
 

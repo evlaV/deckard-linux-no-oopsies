@@ -142,7 +142,7 @@ int iris_calc_bw_iris3(struct iris_inst *inst, struct bus_vote_data *data)
 			data->bus_bw = bw_tbl[i].bw_ddr;
 	}
 
-	dev_dbg(core->dev, "bus_bw %llu\n", data->bus_bw);
+	dev_info(core->dev, "bus_bw %llu\n", data->bus_bw);
 
 	return 0;
 }
