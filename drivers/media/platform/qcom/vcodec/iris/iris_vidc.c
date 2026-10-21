@@ -33,7 +33,7 @@ static void adjust_dst_offset(struct v4l2_buffer *buf)
 		buf->m.planes[i].m.mem_offset += DST_QUEUE_OFF_BASE;
 }
 
-static int vidc_v4l2_fh_init(struct iris_inst *inst, struct file *filp)
+static int vidc_v4l2_fh_init(struct iris_inst *inst)
 {
 	struct iris_core *core;
 
@@ -48,17 +48,17 @@ static int vidc_v4l2_fh_init(struct iris_inst *inst, struct file *filp)
 		v4l2_fh_init(&inst->fh, core->vdev_dec);
 
 	inst->fh.ctrl_handler = &inst->ctrl_handler;
-	v4l2_fh_add(&inst->fh, filp);
+	v4l2_fh_add(&inst->fh);
 
 	return 0;
 }
 
-static int vidc_v4l2_fh_deinit(struct iris_inst *inst, struct file *filp)
+static int vidc_v4l2_fh_deinit(struct iris_inst *inst)
 {
 	if (!inst->fh.vdev)
 		return 0;
 
-	v4l2_fh_del(&inst->fh, filp);
+	v4l2_fh_del(&inst->fh);
 	inst->fh.ctrl_handler = NULL;
 	v4l2_fh_exit(&inst->fh);
 
@@ -237,7 +237,7 @@ int vidc_open(struct file *filp)
 	for (i = 0; i < MAX_SIGNAL; i++)
 		init_completion(&inst->completions[i]);
 
-	ret = vidc_v4l2_fh_init(inst, filp);
+	ret = vidc_v4l2_fh_init(inst);
 	if (ret)
 		goto fail_remove_session;
 
@@ -276,7 +276,7 @@ fail_inst_deinit:
 	else if (inst->domain == ENCODER)
 		venc_inst_deinit(inst);
 fail_fh_deinit:
-	vidc_v4l2_fh_deinit(inst, filp);
+	vidc_v4l2_fh_deinit(inst);
 fail_remove_session:
 	vidc_remove_session(inst);
 fail_free_inst:
@@ -311,7 +311,7 @@ int vidc_close(struct file *filp)
 	close_session(inst);
 	iris_inst_change_state(inst, IRIS_INST_CLOSE);
 	vidc_vb2_queue_deinit(inst);
-	vidc_v4l2_fh_deinit(inst, filp);
+	vidc_v4l2_fh_deinit(inst);
 	iris_destroy_buffers(inst);
 	vidc_remove_session(inst);
 	iris_pm_put(core, false);
@@ -934,7 +934,7 @@ unlock:
 	return ret;
 }
 
-static int vidc_query_ext_ctrl(struct file *filp, void *fh, struct v4l2_query_ext_ctrl *q_ctrl)
+static int vidc_queryctrl(struct file *filp, void *fh, struct v4l2_queryctrl *q_ctrl)
 {
 	struct v4l2_ctrl *ctrl;
 	struct iris_inst *inst;
@@ -1427,7 +1427,7 @@ static const struct v4l2_ioctl_ops v4l2_ioctl_ops_dec = {
 	.vidioc_streamon                = vidc_streamon,
 	.vidioc_streamoff               = vidc_streamoff,
 	.vidioc_querycap                = vidc_querycap,
-	.vidioc_query_ext_ctrl          = vidc_query_ext_ctrl,
+	.vidioc_queryctrl               = vidc_queryctrl,
 	.vidioc_querymenu               = vidc_querymenu,
 	.vidioc_subscribe_event         = vidc_subscribe_event,
 	.vidioc_unsubscribe_event       = vidc_unsubscribe_event,
@@ -1457,7 +1457,7 @@ static const struct v4l2_ioctl_ops v4l2_ioctl_ops_enc = {
 	.vidioc_streamon                = vidc_streamon,
 	.vidioc_streamoff               = vidc_streamoff,
 	.vidioc_querycap                = vidc_querycap,
-	.vidioc_query_ext_ctrl          = vidc_query_ext_ctrl,
+	.vidioc_queryctrl               = vidc_queryctrl,
 	.vidioc_querymenu               = vidc_querymenu,
 	.vidioc_subscribe_event         = vidc_subscribe_event,
 	.vidioc_unsubscribe_event       = vidc_unsubscribe_event,

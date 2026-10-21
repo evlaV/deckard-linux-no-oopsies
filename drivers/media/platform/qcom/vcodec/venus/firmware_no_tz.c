@@ -44,7 +44,7 @@ int init_fw_no_tz(struct venus_core *core)
 
 	core->fw.dev = &pdev->dev;
 
-	iommu_dom = iommu_paging_domain_alloc(core->fw.dev);
+	iommu_dom = iommu_domain_alloc(&platform_bus_type);
 	if (!iommu_dom) {
 		dev_err(core->fw.dev, "Failed to allocate iommu domain\n");
 		ret = -ENOMEM;

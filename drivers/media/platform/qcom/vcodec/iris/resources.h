@@ -6,11 +6,6 @@
 #ifndef _RESOURCES_H_
 #define _RESOURCES_H_
 
-enum platform_pm_domain_type {
-	IRIS_CTRL_POWER_DOMAIN,
-	IRIS_HW_POWER_DOMAIN,
-};
-
 struct bus_info {
 	struct icc_path		*icc;
 	const char		*name;
@@ -36,8 +31,8 @@ struct reset_info {
 	const char		*name;
 };
 
-int enable_power_domains(struct iris_core *core, enum platform_pm_domain_type id);
-int disable_power_domains(struct iris_core *core, enum platform_pm_domain_type id);
+int enable_power_domains(struct iris_core *core, const char *name);
+int disable_power_domains(struct iris_core *core, const char *name);
 int unvote_buses(struct iris_core *core);
 int vote_buses(struct iris_core *core, unsigned long bus_bw);
 int reset_ahb2axi_bridge(struct iris_core *core);

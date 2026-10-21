@@ -8,7 +8,6 @@
 #include <linux/firmware.h>
 #include <linux/kernel.h>
 #include <linux/iommu.h>
-#include <linux/io.h>
 #include <linux/of_device.h>
 #include <linux/firmware/qcom/qcom_scm.h>
 #include <linux/of_reserved_mem.h>
@@ -121,7 +120,7 @@ int load_fw(struct device *dev, const char *fw_name, phys_addr_t *mem_phys,
 		ret = qcom_mdt_load(dev, firmware, fw_name, pas_id, mem_virt,
 				    *mem_phys, *mem_size, NULL);
 	else
-		ret = qcom_mdt_load_no_init(dev, firmware, fw_name, mem_virt,
+		ret = qcom_mdt_load_no_init(dev, firmware, fw_name, pas_id, mem_virt,
 					    *mem_phys, *mem_size, NULL);
 	if (ret) {
 		dev_err(dev, "%s: error %d loading fw \"%s\"\n",

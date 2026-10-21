@@ -293,7 +293,7 @@ static int power_off_iris3_hardware(struct iris_core *core)
 		goto disable_power;
 
 disable_power:
-	ret = disable_power_domains(core, IRIS_HW_POWER_DOMAIN);
+	ret = disable_power_domains(core, "vcodec0");
 	if (ret) {
 		dev_err(core->dev, "disable power domain vcodec failed\n");
 		ret = 0;
@@ -363,7 +363,7 @@ disable_power:
 	}
 
 	/* power down process */
-	ret = disable_power_domains(core, IRIS_CTRL_POWER_DOMAIN);
+	ret = disable_power_domains(core, "venus");
 	if (ret) {
 		dev_err(core->dev, "disable power domain iris-ctl failed\n");
 		ret = 0;
@@ -394,7 +394,7 @@ static int power_on_iris3_controller(struct iris_core *core)
 {
 	int ret;
 
-	ret = enable_power_domains(core, IRIS_CTRL_POWER_DOMAIN);
+	ret = enable_power_domains(core, "venus");
 	if (ret)
 		return ret;
 
@@ -415,7 +415,7 @@ static int power_on_iris3_controller(struct iris_core *core)
 err_disable_clock:
 	disable_unprepare_clock(core, "iface");
 err_disable_power:
-	disable_power_domains(core, IRIS_CTRL_POWER_DOMAIN);
+	disable_power_domains(core, "venus");
 
 	return ret;
 }
@@ -424,7 +424,7 @@ static int power_on_iris3_hardware(struct iris_core *core)
 {
 	int ret;
 
-	ret = enable_power_domains(core, IRIS_HW_POWER_DOMAIN);
+	ret = enable_power_domains(core, "vcodec0");
 	if (ret)
 		return ret;
 
@@ -435,7 +435,7 @@ static int power_on_iris3_hardware(struct iris_core *core)
 	return ret;
 
 err_disable_power:
-	disable_power_domains(core, IRIS_HW_POWER_DOMAIN);
+	disable_power_domains(core, "vcodec0");
 
 	return ret;
 }

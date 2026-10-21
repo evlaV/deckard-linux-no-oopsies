@@ -1060,9 +1060,9 @@ static const struct clock_info sm8550_clk_table[] = {
 
 static const char * const sm8550_clk_reset_table[] = { "bus", NULL };
 
-static const char * const sm8550_pd_table[] = { "venus", "vcodec0" };
+static const char * const sm8550_pd_table[] = { "venus", "vcodec0", NULL };
 
-static const char * const sm8550_opp_pd_table[] = { "mxc", "mmcx" };
+static const char * const sm8550_opp_pd_table[] = { "mxc", "mmcx", NULL };
 
 static const struct bw_info sm8550_bw_table_enc[] = {
 	{ 1944000, 1491000, 2693000 },	/* 3840x2160@60 */
