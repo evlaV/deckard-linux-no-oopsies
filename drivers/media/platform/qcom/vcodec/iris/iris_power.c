@@ -86,11 +86,6 @@ static int iris_set_clocks(struct iris_inst *inst)
 		freq += instance->power.min_freq;
 	}
 
-	// !! HACK: The frequencies that are computed by iris_calc_freq_iris3 are looking extremely slow
-	// and makes the encoder lag behind even when trying to encode a small load of data
-	// Need to revisit this once we understand why the frequencies are so low
-	// Set it to the turbo_l1 frequency listed in the opp_table
-	freq = 533333334;
 	core->power.clk_freq = freq;
 
 	ret = opp_set_rate(core, freq);
