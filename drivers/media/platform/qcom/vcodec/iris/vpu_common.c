@@ -133,10 +133,6 @@ static const struct compat_handle compat_handle[] = {
 		.compat                  = "qcom,sm8550-iris",
 		.init                    = init_iris3,
 	},
-	{
-		.compat                  = "qcom,sm8650-iris",
-		.init                    = init_iris3,
-	},
 };
 
 int init_vpu(struct iris_core *core)

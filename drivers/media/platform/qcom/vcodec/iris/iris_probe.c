@@ -337,10 +337,6 @@ static const struct of_device_id iris_dt_match[] = {
 		.compatible = "qcom,sm8550-iris",
 		.data = &sm8550_data,
 	},
-	{
-		.compatible = "qcom,sm8650-iris",
-		.data = &sm8550_data,
-	},
 	{ },
 };
 MODULE_DEVICE_TABLE(of, iris_dt_match);

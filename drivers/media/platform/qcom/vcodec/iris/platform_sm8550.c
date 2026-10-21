@@ -1048,19 +1048,19 @@ static struct plat_inst_cap instance_cap_data_sm8550[] = {
 };
 
 static const struct bus_info sm8550_bus_table[] = {
-	{ NULL, "cpu-cfg", 1000, 1000     },
-	{ NULL, "video-mem",  1000, 15000000 },
+	{ NULL, "iris-cnoc", 1000, 1000     },
+	{ NULL, "iris-ddr",  1000, 15000000 },
 };
 
 static const struct clock_info sm8550_clk_table[] = {
-	{ NULL, "iface", GCC_VIDEO_AXI0_CLK, 0 },
-	{ NULL, "core",       VIDEO_CC_MVS0C_CLK, 0 },
-	{ NULL, "vcodec0_core",    VIDEO_CC_MVS0_CLK,  1 },
+	{ NULL, "gcc_video_axi0", GCC_VIDEO_AXI0_CLK, 0 },
+	{ NULL, "core_clk",       VIDEO_CC_MVS0C_CLK, 0 },
+	{ NULL, "vcodec_core",    VIDEO_CC_MVS0_CLK,  1 },
 };
 
-static const char * const sm8550_clk_reset_table[] = { "bus", NULL };
+static const char * const sm8550_clk_reset_table[] = { "video_axi_reset", NULL };
 
-static const char * const sm8550_pd_table[] = { "venus", "vcodec0", NULL };
+static const char * const sm8550_pd_table[] = { "iris-ctl", "vcodec", NULL };
 
 static const char * const sm8550_opp_pd_table[] = { "mxc", "mmcx", NULL };
 

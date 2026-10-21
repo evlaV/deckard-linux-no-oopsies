@@ -105,7 +105,7 @@ static int init_power_domains(struct iris_core *core)
 	if (ret < 0)
 		return ret;
 
-	ret = devm_pm_opp_set_clkname(core->dev, "vcodec0_core");
+	ret = devm_pm_opp_set_clkname(core->dev, "vcodec_core");
 	if (ret)
 		return ret;
 
@@ -262,7 +262,7 @@ int vote_buses(struct iris_core *core, unsigned long bus_bw)
 	for (i = 0; i < core->bus_count; i++) {
 		bus = &core->bus_tbl[i];
 		if (bus && bus->icc) {
-			if (!strcmp(bus->name, "video-mem")) {
+			if (!strcmp(bus->name, "iris-ddr")) {
 				bw_kbps = bus_bw;
 				bw_prev = core->power.bus_bw;
 			} else {
@@ -281,7 +281,7 @@ int vote_buses(struct iris_core *core, unsigned long bus_bw)
 			if (ret)
 				return ret;
 
-			if (!strcmp(bus->name, "video-mem"))
+			if (!strcmp(bus->name, "iris-ddr"))
 				core->power.bus_bw = bw_kbps;
 		}
 	}

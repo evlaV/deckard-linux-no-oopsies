@@ -293,13 +293,13 @@ static int power_off_iris3_hardware(struct iris_core *core)
 		goto disable_power;
 
 disable_power:
-	ret = disable_power_domains(core, "vcodec0");
+	ret = disable_power_domains(core, "vcodec");
 	if (ret) {
 		dev_err(core->dev, "disable power domain vcodec failed\n");
 		ret = 0;
 	}
 
-	disable_unprepare_clock(core, "vcodec0_core");
+	disable_unprepare_clock(core, "vcodec_core");
 	if (ret) {
 		dev_err(core->dev, "disable unprepare vcodec_core failed\n");
 		ret = 0;
@@ -356,14 +356,14 @@ static int power_off_iris3_controller(struct iris_core *core)
 		goto disable_power;
 
 disable_power:
-	disable_unprepare_clock(core, "core");
+	disable_unprepare_clock(core, "core_clk");
 	if (ret) {
 		dev_err(core->dev, "disable unprepare core_clk failed\n");
 		ret = 0;
 	}
 
 	/* power down process */
-	ret = disable_power_domains(core, "venus");
+	ret = disable_power_domains(core, "iris-ctl");
 	if (ret) {
 		dev_err(core->dev, "disable power domain iris-ctl failed\n");
 		ret = 0;
@@ -394,7 +394,7 @@ static int power_on_iris3_controller(struct iris_core *core)
 {
 	int ret;
 
-	ret = enable_power_domains(core, "venus");
+	ret = enable_power_domains(core, "iris-ctl");
 	if (ret)
 		return ret;
 
@@ -402,20 +402,20 @@ static int power_on_iris3_controller(struct iris_core *core)
 	if (ret)
 		goto err_disable_power;
 
-	ret = prepare_enable_clock(core, "iface");
+	ret = prepare_enable_clock(core, "gcc_video_axi0");
 	if (ret)
 		goto err_disable_power;
 
-	ret = prepare_enable_clock(core, "core");
+	ret = prepare_enable_clock(core, "core_clk");
 	if (ret)
 		goto err_disable_clock;
 
 	return ret;
 
 err_disable_clock:
-	disable_unprepare_clock(core, "iface");
+	disable_unprepare_clock(core, "gcc_video_axi0");
 err_disable_power:
-	disable_power_domains(core, "venus");
+	disable_power_domains(core, "iris-ctl");
 
 	return ret;
 }
@@ -424,18 +424,18 @@ static int power_on_iris3_hardware(struct iris_core *core)
 {
 	int ret;
 
-	ret = enable_power_domains(core, "vcodec0");
+	ret = enable_power_domains(core, "vcodec");
 	if (ret)
 		return ret;
 
-	ret = prepare_enable_clock(core, "vcodec0_core");
+	ret = prepare_enable_clock(core, "vcodec_core");
 	if (ret)
 		goto err_disable_power;
 
 	return ret;
 
 err_disable_power:
-	disable_power_domains(core, "vcodec0");
+	disable_power_domains(core, "vcodec");
 
 	return ret;
 }
