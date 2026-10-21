@@ -15,9 +15,6 @@
 #include "iris_power.h"
 #include "iris_vdec.h"
 
-#define CREATE_TRACE_POINTS
-#include "trace.h"
-
 #define UNSPECIFIED_COLOR_FORMAT 5
 
 struct vdec_prop_type_handle {
@@ -1039,8 +1036,6 @@ int vdec_streamon_input(struct iris_inst *inst)
 {
 	int ret;
 
-	trace_iris_vdec_streamon_input(0);
-	
 	ret = check_session_supported(inst);
 	if (ret)
 		return ret;
