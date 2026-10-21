@@ -102,8 +102,6 @@ int load_fw(struct device *dev, const char *fw_name, phys_addr_t *mem_phys,
 		goto err_release_fw;
 	}
 
-	dev_info(dev, "%s: %s, size: %ld\n", __func__, fw_name, fw_size);
-
 	*mem_phys = rmem->base;
 	*mem_size = rmem->size;
 

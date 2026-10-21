@@ -351,7 +351,7 @@ static struct platform_driver qcom_iris_driver = {
 	.driver = {
 		.name = "qcom-iris",
 		.of_match_table = iris_dt_match,
-		//.pm = &iris_pm_ops,
+		.pm = &iris_pm_ops,
 	},
 };
 

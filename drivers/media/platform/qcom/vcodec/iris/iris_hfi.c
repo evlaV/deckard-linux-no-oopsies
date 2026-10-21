@@ -164,14 +164,8 @@ int iris_hfi_core_init(struct iris_core *core)
 	fw_name = core->platform_data->fwname;
 	ret = load_fw(core->dev, fw_name, &core->fw.mem_phys, &core->fw.mem_size,
 		      pas_id, core->use_tz);
-
 	if (ret)
-	{
-		dev_info(core->dev, "%s(): firmware: fail\n", __func__);
-		goto error; //if fw load fails, error_power_off handler will lock up kernel
-	}
-	else
-		dev_info(core->dev, "%s(): firmware: ok\n", __func__);
+		goto error_power_off;
 
 	if (core->use_tz)
 		ret = auth_reset_fw(pas_id);
