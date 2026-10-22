@@ -1429,7 +1429,7 @@ static void pm8550b_charger_log_latched_status(struct pm8550b_charger *chg)
 	int ret;
 
 	regmap_read(chg->regmap, base + CHGR_CHARGER_STATUS_ADDR, &status);
-	dev_warn(chg->dev, "Charger latched status at probe (charger status 0x%02x %s):\n",
+	dev_info(chg->dev, "Charger PON latched status at probe (charger status 0x%02x %s):\n",
 		 status, pm8550b_charger_status_str(status & CHGR_CHARGER_STATUS_MASK));
 
 	for (i = 0; i < ARRAY_SIZE(regs); i++) {
@@ -1447,7 +1447,7 @@ static void pm8550b_charger_log_latched_status(struct pm8550b_charger *chg)
 
 		/* OK flags are decoded inverted, so a latched 0 shows up as "... not OK" */
 		pm8550b_decode_sts(decoded, sizeof(decoded), lt ^ ok_mask, regs[i].bits, regs[i].n);
-		dev_warn(chg->dev, "  %s LT 0x%02x (RT 0x%02x): %s\n", regs[i].name, lt, rt, decoded);
+		dev_info(chg->dev, "PON  %s LT 0x%02x (RT 0x%02x): %s\n", regs[i].name, lt, rt, decoded);
 	}
 
 	ret = regmap_write(chg->regmap, base + CHGR_CHG_LT_CLR, CHGR_CHG_LT_CLR_MASK);
