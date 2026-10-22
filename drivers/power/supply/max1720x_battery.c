@@ -5965,7 +5965,7 @@ static void max17320_log_fault_snapshot(struct max1720x_priv *priv)
 	curr_ma = max1720x_raw_current_to_uamps(priv, sign_extend32(curr, 15)) / 1000;
 	die_temp = (sign_extend32(die, 15) * 10) >> 8; /* LSB: 1/256 C, to 0.1 C */
 
-	dev_warn(priv->dev,
+	dev_info(priv->dev,
 		 "  Now: BATT=%u mV PCKP=%u mV Current=%d mA Temp=%s%d.%d C DieTemp=%s%d.%d C\n",
 		 (batt * 625 / 2) / 1000, (pckp * 625 / 2) / 1000, curr_ma,
 		 temp < 0 ? "-" : "", abs(temp) / 10, abs(temp) % 10,
@@ -6026,58 +6026,58 @@ static bool max17320_log_fault_latches(struct max1720x_priv *priv, unsigned int 
 	if (ret < 0)
 		dev_err(priv->dev, "nNVCfg2 read failed (%d)\n", ret);
 
-	dev_warn(priv->dev, "Fault latches at init:\n");
+	dev_info(priv->dev, "Fault latches at PON:\n");
 
 	/* Undefined Status bits can read as 1, so drop them before decoding */
 	max17320_decode_bits(decoded, sizeof(decoded), status & ~MAX17320_STATUS_DONT_CARE,
 			     max17320_status_bits, ARRAY_SIZE(max17320_status_bits), NULL);
-	dev_warn(priv->dev, "  Status      0x%04x: %s\n", status, decoded);
+	dev_info(priv->dev, "  PON Status      0x%04x: %s\n", status, decoded);
 
 	max17320_decode_bits(decoded, sizeof(decoded), prot_status, max17320_prot_status_bits,
 			     ARRAY_SIZE(max17320_prot_status_bits), NULL);
-	dev_warn(priv->dev, "  ProtStatus  0x%04x: %s\n", prot_status, decoded);
+	dev_info(priv->dev, "  PON ProtStatus  0x%04x: %s\n", prot_status, decoded);
 
 	max17320_decode_bits(decoded, sizeof(decoded), prot_alrt, max17320_prot_alrt_bits,
 			     ARRAY_SIZE(max17320_prot_alrt_bits), &dis_fet);
-	dev_warn(priv->dev, "  ProtAlrt    0x%04x: %s\n", prot_alrt, decoded);
+	dev_info(priv->dev, "  PON ProtAlrt    0x%04x: %s\n", prot_alrt, decoded);
 
 	/* Low byte is LeakCurr, LSB 3.125 uV across Rsense (0.625 mA with 5 mOhm) */
 	max17320_decode_bits(decoded, sizeof(decoded), n_batt_status & ~MAX17320_NBATTSTATUS_LEAKCURR,
 			     max17320_n_batt_status_bits, ARRAY_SIZE(max17320_n_batt_status_bits),
 			     &dis_fet);
-	dev_warn(priv->dev, "  nBattStatus 0x%04x: %s; LeakCurr=%u\n", n_batt_status, decoded,
+	dev_info(priv->dev, "  PON nBattStatus 0x%04x: %s; LeakCurr=%u\n", n_batt_status, decoded,
 		 n_batt_status & MAX17320_NBATTSTATUS_LEAKCURR);
 
 	if (n_nv_cfg2 & MAX17320_NNVCFG2_ENFL) {
 		max17320_decode_bits(decoded, sizeof(decoded), n_fault_log,
 				     max17320_n_fault_log_bits, ARRAY_SIZE(max17320_n_fault_log_bits),
 				     NULL);
-		dev_warn(priv->dev, "  nFaultLog   0x%04x: %s (faults seen this log period)\n",
+		dev_info(priv->dev, "  PON nFaultLog   0x%04x: %s (faults seen this log period)\n",
 			 n_fault_log, decoded);
 	} else {
-		dev_warn(priv->dev, "  nFaultLog   0x%04x: not a fault log (nNVCfg2.enFL=0)\n",
+		dev_info(priv->dev, "  PON nFaultLog   0x%04x: not a fault log (nNVCfg2.enFL=0)\n",
 			 n_fault_log);
 	}
 
-	dev_warn(priv->dev,
-		 "  HProtCfg2   0x%04x: CHG FET %s, DIS FET %s, PBEN=%d, CPCfg=%s, CommOvrd=%d, AOLDO=%s\n",
+	dev_info(priv->dev,
+		 "  PON HProtCfg2   0x%04x: CHG FET %d, DIS FET %d, PBEN=%d, CPCfg=%s, CommOvrd=%d, AOLDO=%s\n",
 		 h_prot_cfg2,
-		 (h_prot_cfg2 & MAX17320_HPROTCFG2_CHGS) ? "on" : "off",
-		 (h_prot_cfg2 & MAX17320_HPROTCFG2_DISS) ? "on" : "off",
+		 (h_prot_cfg2 & MAX17320_HPROTCFG2_CHGS),
+		 (h_prot_cfg2 & MAX17320_HPROTCFG2_DISS),
 		 !!(h_prot_cfg2 & MAX17320_HPROTCFG2_PBEN),
 		 cp_cfg_str[(h_prot_cfg2 & MAX17320_HPROTCFG2_CPCFG) >> MAX17320_HPROTCFG2_CPCFG_POS],
 		 !!(h_prot_cfg2 & MAX17320_HPROTCFG2_COMMOVRD),
 		 aoldo_str[(h_prot_cfg2 & MAX17320_HPROTCFG2_AOLDO) >> MAX17320_HPROTCFG2_AOLDO_POS]);
 
 	if (dis_fet)
-		dev_warn(priv->dev,
-			 "  Latched pack protection fault opens the discharge FET; likely cause of the last power loss\n");
+		dev_info(priv->dev,
+			 "  PON Latched pack protection fault opens the discharge FET; likely cause of the last power loss\n");
 	else if (prot_alrt)
-		dev_warn(priv->dev,
-			 "  Latched pack protection fault does not open the discharge FET; it did not cut system power\n");
+		dev_info(priv->dev,
+			 "  PON Latched pack protection fault does not open the discharge FET; it did not cut system power\n");
 	else if (status & MAX1720X_STATUS_POR)
-		dev_warn(priv->dev,
-			 "  Gauge reset with no protection fault latched; pack was disconnected, fully drained or this is first power-up\n");
+		dev_info(priv->dev,
+			 "  PON Gauge reset with no protection fault latched; pack was disconnected, fully drained or this is first power-up\n");
 
 	if (prot_alrt || prot_status || (status & MAX1720X_STATUS_PROTECTION_ALRT) ||
 	    (n_batt_status & ~MAX17320_NBATTSTATUS_LEAKCURR))
