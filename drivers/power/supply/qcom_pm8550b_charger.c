@@ -815,6 +815,7 @@ static ssize_t status_detailed_show(struct device *dev, struct device_attribute 
 
 	/* QPH Status */
 	regmap_read(chg->regmap, chg->base[BASE_CHG2] + CHGR2_QPH2_RT_STS, &reg);
+	at += sysfs_emit_at(buf, at, "QPH MAIN CHG OK: %d\n", !!(reg & CHGR2_QPH2_RT_STS_MAIN_CHG_OK_MASK));
 	at += sysfs_emit_at(buf, at, "QPH VBAT1 OK: %d\n", !!(reg & CHGR2_QPH2_RT_STS_VBAT1_HI_MASK));
 	at += sysfs_emit_at(buf, at, "QPH VIN OK: %d\n", !!(reg & CHGR2_QPH2_RT_STS_VIN_HI_MASK));
 	at += sysfs_emit_at(buf, at, "QPH2: %d\n", !!(reg & CHGR2_QPH2_RT_STS_QPH2_ON_MASK));
