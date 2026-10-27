@@ -561,6 +561,13 @@ static int max34417_channel_label_get(const void *drvdata, int channel, const ch
 	return 0;
 }
 
+/*
+ * A forced shutdown (kernel_power_off()/kernel_restart() without stopping
+ * userspace first, e.g. the thermal emergency fallback) runs the I2C
+ * controller's shutdown callback while userspace keeps polling these
+ * attributes. Every transfer then fails with -ESHUTDOWN, and the I2C core
+ * already warns once per adapter, so don't log each failed read on top.
+ */
 static int max34417_accumulator_read(struct device *dev, unsigned int *acc_count)
 {
 	struct max34417_data *data = dev_get_drvdata(dev);
@@ -577,7 +584,8 @@ static int max34417_accumulator_read(struct device *dev, unsigned int *acc_count
 						buf);
 
 	if (regval < 0) {
-		dev_err(dev, "Could not read accumulator data\n");
+		if (regval != -ESHUTDOWN)
+			dev_err(dev, "Could not read accumulator data\n");
 		err = -EIO;
 		goto error;
 	}
@@ -683,7 +691,8 @@ static int max34417_read(struct device *dev, enum hwmon_sensor_types type,
 							   buf);
 
 			if (regval < 0) {
-				dev_err(dev, "Could not read voltage data\n");
+				if (regval != -ESHUTDOWN)
+					dev_err(dev, "Could not read voltage data\n");
 				err = -EIO;
 				goto error;
 			}
@@ -732,7 +741,8 @@ static int max34417_read(struct device *dev, enum hwmon_sensor_types type,
 							   buf);
 
 			if (regval < 0) {
-				dev_err(dev, "Could not read power accumulator value\n");
+				if (regval != -ESHUTDOWN)
+					dev_err(dev, "Could not read power accumulator value\n");
 				err = -EIO;
 				goto error;
 			}
@@ -751,7 +761,8 @@ static int max34417_read(struct device *dev, enum hwmon_sensor_types type,
 							   3, buf);
 
 				if (regval < 0) {
-					dev_err(dev, "Could not read voltage data\n");
+					if (regval != -ESHUTDOWN)
+						dev_err(dev, "Could not read voltage data\n");
 					err = -EIO;
 					goto error;
 				}
