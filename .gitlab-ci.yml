@@ -1,3 +1,10 @@
+# Only run in the private repository.  `deploy-public` pushes commits (this file included) to
+# `linux-valve-publicly-released-branches`, which can't pull the private holo builder image and
+# has nothing to build, so without this every deploy starts a pipeline there that fails.
+workflow:
+  rules:
+    - if: $CI_PROJECT_PATH == "deckard/deckardos/linux-valve"
+
 stages:
   - build
   - collect
@@ -126,10 +133,11 @@ deploy-public:
     # The CI clone is shallow; that's fine as long as the public repository already has the commits at
     # the shallow boundary.  If it doesn't (e.g. after a rebase), fetch the full history and try again.
     # Force, as the public repository mirrors this one and the branch may have been rebased.
+    # `ci.skip` stops the push from starting a pipeline in the public repository.
     - |
-      git push --force public "${CI_COMMIT_SHA}:refs/heads/${CI_COMMIT_BRANCH}" || {
+      git push -o ci.skip --force public "${CI_COMMIT_SHA}:refs/heads/${CI_COMMIT_BRANCH}" || {
         git fetch --unshallow --no-tags "${CI_REPOSITORY_URL}"
-        git push --force public "${CI_COMMIT_SHA}:refs/heads/${CI_COMMIT_BRANCH}"
+        git push -o ci.skip --force public "${CI_COMMIT_SHA}:refs/heads/${CI_COMMIT_BRANCH}"
       }
   tags:
     - aarch64-linux-docker
