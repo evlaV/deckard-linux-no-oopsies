@@ -63,6 +63,28 @@ int iris_vdec_inst_init(struct iris_inst *inst)
 	return iris_ctrls_init(inst);
 }
 
+/*
+ * Publish the driver's current minimum CAPTURE buffer count to userspace:
+ * both V4L2_CID_MIN_BUFFERS_FOR_CAPTURE and the queue's minimum allocation.
+ * Call whenever inst->buffers[BUF_OUTPUT].min_count is recalculated.
+ */
+void iris_vdec_update_min_capture_bufs(struct iris_inst *inst)
+{
+	u32 count = inst->buffers[BUF_OUTPUT].min_count;
+	struct v4l2_ctrl *ctrl;
+
+	ctrl = v4l2_ctrl_find(&inst->ctrl_handler, V4L2_CID_MIN_BUFFERS_FOR_CAPTURE);
+	if (ctrl) {
+		if (count > ctrl->maximum)
+			dev_warn_ratelimited(inst->core->dev,
+					     "min capture buffers %u exceeds control maximum %lld\n",
+					     count, ctrl->maximum);
+		v4l2_ctrl_s_ctrl(ctrl, count);
+	}
+
+	v4l2_m2m_get_dst_vq(inst->m2m_ctx)->min_reqbufs_allocation = count;
+}
+
 static const u32 iris_vdec_formats_cap[] = {
 	V4L2_PIX_FMT_NV12,
 	V4L2_PIX_FMT_QC08C,
@@ -271,6 +293,8 @@ int iris_vdec_s_fmt(struct iris_inst *inst, struct v4l2_format *f)
 		fmt->type = V4L2_BUF_TYPE_VIDEO_OUTPUT_MPLANE;
 		fmt->fmt.pix_mp.pixelformat = f->fmt.pix_mp.pixelformat;
 		inst->codec = fmt->fmt.pix_mp.pixelformat;
+		/* The source queue is idle: any firmware count is from an old stream. */
+		inst->fw_min_count = 0;
 		codec_align = inst->codec == V4L2_PIX_FMT_HEVC ? 32 : 16;
 		fmt->fmt.pix_mp.width = ALIGN(f->fmt.pix_mp.width, codec_align);
 		fmt->fmt.pix_mp.height = ALIGN(f->fmt.pix_mp.height, codec_align);
@@ -294,6 +318,7 @@ int iris_vdec_s_fmt(struct iris_inst *inst, struct v4l2_format *f)
 		/* Update capture format based on new ip w/h */
 		iris_vdec_set_capture_size(inst, f->fmt.pix_mp.width,
 					   f->fmt.pix_mp.height);
+		iris_vdec_update_min_capture_bufs(inst);
 
 		inst->crop.left = 0;
 		inst->crop.top = 0;
@@ -310,6 +335,7 @@ int iris_vdec_s_fmt(struct iris_inst *inst, struct v4l2_format *f)
 		fmt->fmt.pix_mp.num_planes = 1;
 		iris_vdec_set_capture_size(inst, f->fmt.pix_mp.width,
 					   f->fmt.pix_mp.height);
+		iris_vdec_update_min_capture_bufs(inst);
 
 		inst->crop.top = 0;
 		inst->crop.left = 0;
