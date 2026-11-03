@@ -313,6 +313,7 @@ void iris_vb2_buf_queue(struct vb2_buffer *vb2)
 	struct vb2_v4l2_buffer *vbuf = to_vb2_v4l2_buffer(vb2);
 	struct v4l2_m2m_ctx *m2m_ctx;
 	struct iris_inst *inst;
+	bool in_m2m = false;
 	int ret = 0;
 
 	inst = vb2_get_drv_priv(vb2->vb2_queue);
@@ -350,6 +351,7 @@ void iris_vb2_buf_queue(struct vb2_buffer *vb2)
 	}
 
 	v4l2_m2m_buf_queue(m2m_ctx, vbuf);
+	in_m2m = true;
 
 	if (inst->domain == DECODER)
 		ret = iris_vdec_qbuf(inst, vbuf);
@@ -359,7 +361,25 @@ void iris_vb2_buf_queue(struct vb2_buffer *vb2)
 exit:
 	if (ret) {
 		iris_inst_change_state(inst, IRIS_INST_ERROR);
-		v4l2_m2m_buf_done(vbuf, VB2_BUF_STATE_ERROR);
+		if (!vb2_start_streaming_called(vb2->vb2_queue)) {
+			/*
+			 * vb2 hands queued buffers to the driver just before
+			 * calling start_streaming(). Completing them here would
+			 * put them on the done list, which vb2 forbids when
+			 * start_streaming() fails. Keep the buffer on the m2m
+			 * queue instead; start_streaming() sees the error state
+			 * and returns every buffer as VB2_BUF_STATE_QUEUED.
+			 */
+			if (!in_m2m)
+				v4l2_m2m_buf_queue(inst->m2m_ctx, vbuf);
+		} else {
+			if (in_m2m)
+				v4l2_m2m_buf_remove_by_buf(V4L2_TYPE_IS_OUTPUT(vb2->type) ?
+							   &inst->m2m_ctx->out_q_ctx :
+							   &inst->m2m_ctx->cap_q_ctx,
+							   vbuf);
+			v4l2_m2m_buf_done(vbuf, VB2_BUF_STATE_ERROR);
+		}
 	}
 	mutex_unlock(&inst->lock);
 }
