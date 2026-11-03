@@ -8,12 +8,15 @@
 #include <linux/debugfs.h>
 #include <linux/delay.h>
 #include <linux/gpio/consumer.h>
+#include <linux/math64.h>
 #include <linux/module.h>
+#include <linux/mutex.h>
 #include <linux/of.h>
 #include <linux/of_device.h>
 #include <linux/of_graph.h>
 #include <linux/pinctrl/consumer.h>
 #include <linux/regulator/consumer.h>
+#include <linux/unaligned.h>
 
 #include <video/mipi_display.h>
 
@@ -45,6 +48,27 @@
 #define 	VENDOR_OFFSET			27
 #define 	VCOM120_OFFSET			13
 #define 	VCOM90_OFFSET			15
+#define LPM02648C_GAMMA_SET			0xc7
+#define 	GAMMA_SET_NUM_BYTES		76
+#define 	GAMMA_VGMN_BASE			19
+#define 	GAMMA_CODE_MAX			0x3ff
+
+// Highest gamma_black_mode. 0 is factory gamma, 1 is the fitted near-black curve (BOE panels only).
+#define GAMMA_BLACK_MODE_MAX		1
+
+// Per-eye shift of node 17, in codes, from two testers matching the eyes by eye.
+#define GAMMA_BLACK_MODE_BIAS_LEFT	(-12)
+#define GAMMA_BLACK_MODE_BIAS_RIGHT	2
+
+// Fixed point: Q62 for q and q^t, Q40 for q^t inside the fit, Q32 for codes, A and C.
+#define GAMMA_BLACK_MODE_Q_FRAC		62
+#define GAMMA_BLACK_MODE_Z_FRAC		40
+#define GAMMA_BLACK_MODE_FRAC		32
+
+// q = exp(-B) for the fit's B grid: B = 1e-4 + i * (0.2 - 1e-4) / 2000, i = 0..2000.
+#define GAMMA_BLACK_MODE_GRID_STEPS	2000
+#define GAMMA_BLACK_MODE_Q_FIRST	0x3ffe5c972fa63a06ULL	// exp(-1e-4)
+#define GAMMA_BLACK_MODE_Q_RATIO	0x3ffe5cccde2bb286ULL	// exp(-(0.2 - 1e-4) / 2000)
 
 // Brightness settings
 #define BRIGHTNESS_DEFAULT 256
@@ -150,6 +174,14 @@ struct lpm026m648c_ctx {
 
 	uint16_t vcom120[2];
 	uint16_t vcom90[2];
+
+	// Serializes gamma writes from sysfs against prepare/unprepare.
+	struct mutex gamma_lock;
+	unsigned int gamma_black_mode;
+	// Cleared before power off, so sysfs can't write gamma to panels that are shutting down.
+	bool gamma_safe_to_write;
+	bool factory_gamma_valid[2];
+	u8 factory_gamma[2][GAMMA_SET_NUM_BYTES];
 
 	lpm026m648c_modes_t current_mode;
 
@@ -371,6 +403,314 @@ static int update_vcom(struct lpm026m648c_ctx *ctx)
 		DRM_DEV_ERROR(ctx->dev, "Failed to set vcom ( %d )\n", ret);
 	}
 	return ret;
+}
+
+static int get_gamma_code(const u8 *gamma, int node)
+{
+	return get_unaligned_be16(&gamma[2 * node]);
+}
+
+static void set_gamma_code(u8 *gamma, int node, int code)
+{
+	put_unaligned_be16(code, &gamma[2 * node]);
+}
+
+// Datasheet gray level of each node, and the offset that makes gamma voltage linear in (code + offset).
+static const int gamma_node_gray[19] = {
+	0, 4, 15, 27, 43, 67, 91, 111, 119, 128, 152, 176, 192, 212, 228, 243, 250, 254, 255
+};
+static const int gamma_node_offset[19] = {
+	0, 0, 0, 0, 256, 256, 256, 512, 512, 512, 512, 769, 769, 769, 1025, 1025, 1025, 1025, 1025
+};
+
+// Voltage must fall at every node from 0 to 18, which means (code + offset) must rise.
+static bool gamma_curve_is_valid(const u8 *gamma, int base)
+{
+	int node;
+
+	for (node = 0; node < 18; node++) {
+		if (get_gamma_code(gamma, base + node) + gamma_node_offset[node] >=
+		    get_gamma_code(gamma, base + node + 1) + gamma_node_offset[node + 1])
+			return false;
+	}
+	return true;
+}
+
+// The fit needs 128-bit integers; without them the panels stay at factory gamma.
+#ifdef __SIZEOF_INT128__
+struct gamma_black_mode_fit {
+	s64 A, C;
+	s128 sse, slope;
+};
+
+static u64 mul_q62(u64 a, u64 b)
+{
+	return ((u128)a * b + (1ULL << (GAMMA_BLACK_MODE_Q_FRAC - 1))) >> GAMMA_BLACK_MODE_Q_FRAC;
+}
+
+// Every t is an integer, so exp(-B * t) = q^t with q = exp(-B), and no exp() is needed.
+static u64 pow_q62(u64 q, int t)
+{
+	u64 r = 1ULL << GAMMA_BLACK_MODE_Q_FRAC;
+
+	for (; t; t >>= 1) {
+		if (t & 1)
+			r = mul_q62(r, q);
+		q = mul_q62(q, q);
+	}
+	return r;
+}
+
+// q^t for a node, in Q40.
+static s64 gamma_black_mode_z(u64 q, int node)
+{
+	return pow_q62(q, 255 - gamma_node_gray[node]) >> (GAMMA_BLACK_MODE_Q_FRAC - GAMMA_BLACK_MODE_Z_FRAC);
+}
+
+// a * b / d, truncated toward zero, for d > 0.
+static s64 gamma_black_mode_mul_div(s64 a, s64 b, u64 d)
+{
+	u64 r = mul_u64_u64_div_u64(abs(a), abs(b), d);
+
+	return (a < 0) != (b < 0) ? -(s64)r : (s64)r;
+}
+
+// Reference float math (gamma_alg4.c, fit_eval):
+//	for (i = 0; i < 5; i++) z[i] = exp(-B * t[i]);
+//	mz = mean(z); my = mean(y);
+//	szz = sum((z - mz)^2); szy = sum((z - mz) * (y - my));
+//	A = szy / szz;
+//	C = my - A * mz;
+//	for (i = 0; i < 5; i++) { e = C + A * z[i] - y[i]; sse += e * e; }
+// y is nodes 10-14 in effective codes. Returns false if the fit is unusable.
+static bool gamma_black_mode_fit_eval(const int *y, u64 q, struct gamma_black_mode_fit *fit)
+{
+	s64 z[5], dz[5], sz = 0, sy = 0, szy = 0, e;
+	s128 szz = 0;
+	int i;
+
+	for (i = 0; i < 5; i++) {
+		z[i] = gamma_black_mode_z(q, 10 + i);
+		sz += z[i];
+		sy += y[i];
+	}
+	// Deviations are scaled by 5 so the means stay exact; the 5s cancel in A.
+	for (i = 0; i < 5; i++) {
+		dz[i] = 5 * z[i] - sz;
+		szz += (s128)dz[i] * dz[i];
+		szy += dz[i] * (5 * (s64)y[i] - sy);
+	}
+	// Also rejects |A| >= 2^20 codes, which keeps the fixed point in range (real panels are ~900).
+	if ((szz >> GAMMA_BLACK_MODE_Z_FRAC) == 0 || abs(szy) >= (szz >> 20))
+		return false;
+
+	fit->A = gamma_black_mode_mul_div(szy, 1LL << GAMMA_BLACK_MODE_FRAC,
+					       szz >> GAMMA_BLACK_MODE_Z_FRAC);
+	fit->C = ((sy << GAMMA_BLACK_MODE_FRAC) - (s64)(((s128)fit->A * sz) >> GAMMA_BLACK_MODE_Z_FRAC)) / 5;
+	fit->sse = 0;
+	fit->slope = 0;
+	for (i = 0; i < 5; i++) {
+		e = fit->C + (s64)(((s128)fit->A * z[i]) >> GAMMA_BLACK_MODE_Z_FRAC) -
+		    ((s64)y[i] << GAMMA_BLACK_MODE_FRAC);
+		fit->sse += (s128)e * e;
+		// dSSE/dq = 2A/q * sum(e * t * z), since A and C are already least squares.
+		fit->slope += (s128)e * (255 - gamma_node_gray[10 + i]) * z[i];
+	}
+	return true;
+}
+
+// Reference float math (gamma_alg4.c, fit_exp_from_white):
+//	for (i = 0; i <= 2000; i++) {
+//		Bi = 1e-4 + (0.2 - 1e-4) * i / 2000;
+//		r = fit_eval(t, y, Bi);
+//		if (r.ok && r.A > 0 && (!have || r.sse < best_sse)) { best_sse = r.sse; best_B = Bi; have = 1; }
+//	}
+//	if (!have || best_B <= 1e-4 + step || best_B >= 0.2 - step) return -1;
+//	40 golden section steps on SSE over [best_B - step, best_B + step], then B = midpoint;
+//	if (r.A <= 0) return -1;
+// The refinement here bisects on the sign of the SSE slope instead. It finds the same minimum, but
+// golden section compares nearly equal SSEs, which in fixed point is off by a code on ~0.1% of panels.
+static bool gamma_black_mode_fit(const int *y, u64 *q_fit, struct gamma_black_mode_fit *fit)
+{
+	u64 q = GAMMA_BLACK_MODE_Q_FIRST, best_q = 0, lo, hi, mid;
+	struct gamma_black_mode_fit f;
+	s128 best_sse = 0;
+	int i, best_i = -1;
+
+	for (i = 0; i <= GAMMA_BLACK_MODE_GRID_STEPS; i++) {
+		if (gamma_black_mode_fit_eval(y, q, &f) && f.A > 0 && (best_i < 0 || f.sse < best_sse)) {
+			best_sse = f.sse;
+			best_i = i;
+			best_q = q;
+		}
+		q = mul_q62(q, GAMMA_BLACK_MODE_Q_RATIO);
+	}
+	// Best B at either end of the range means the nodes don't curve the right way.
+	if (best_i <= 1 || best_i >= GAMMA_BLACK_MODE_GRID_STEPS - 1)
+		return false;
+
+	// q falls as B rises, so [B + step, B - step] is [q * ratio, q / ratio].
+	lo = mul_q62(best_q, GAMMA_BLACK_MODE_Q_RATIO);
+	hi = mul_u64_u64_div_u64(best_q, 1ULL << GAMMA_BLACK_MODE_Q_FRAC, GAMMA_BLACK_MODE_Q_RATIO);
+	while (hi - lo > 1) {
+		mid = lo + (hi - lo) / 2;
+		if (gamma_black_mode_fit_eval(y, mid, &f) && f.slope > 0)
+			hi = mid;
+		else
+			lo = mid;
+	}
+	*q_fit = lo + (hi - lo) / 2;
+	return gamma_black_mode_fit_eval(y, *q_fit, fit) && fit->A > 0;
+}
+
+// Reference float math (gamma_alg4.c, alg4_bank):
+//	e14 = code_14 + 1025;
+//	rise17 = C + A * exp(-B * 1) - e14;
+//	g = gain + (rise17 > 0 ? bias / rise17 : 0.0);
+//	for (k = 15; k <= 17; k++) {
+//		pred = C + A * exp(-B * (255 - gray_k));
+//		eff = e14 + g * (pred - e14);
+//		code_k = clamp(floor(eff + 0.5) - 1025, 0, 0x3ff);
+//	}
+//	if (!(c14 < c15 && c15 < c16 && c16 < c17 && c17 < c18)) return ALG4_ERR_ORDER;
+// Gain is fixed at 1.00, so eff = e14 + rise * (rise17 + bias) / rise17.
+// The order check here covers the whole final curve, not just nodes 14-18.
+// Replaces nodes 15-17 with an exponential fitted to the panel's own nodes 10-14, shifted by bias at node 17.
+static int gamma_black_mode_bank(u8 *gamma, int base, int bias)
+{
+	s64 e14, rise, rise17, eff, pred[3];
+	struct gamma_black_mode_fit fit;
+	int y[5], i;
+	u64 q;
+
+	for (i = 0; i < 5; i++)
+		y[i] = get_gamma_code(gamma, base + 10 + i) + gamma_node_offset[10 + i];
+	if (!gamma_black_mode_fit(y, &q, &fit))
+		return -EINVAL;
+
+	e14 = (s64)(get_gamma_code(gamma, base + 14) + gamma_node_offset[14]) << GAMMA_BLACK_MODE_FRAC;
+	for (i = 0; i < 3; i++)
+		pred[i] = fit.C + (s64)(((s128)fit.A * gamma_black_mode_z(q, 15 + i)) >> GAMMA_BLACK_MODE_Z_FRAC);
+	rise17 = pred[2] - e14;
+	// Less than one code of rise would scale the bias out of range; the reference accepts it, we don't.
+	if (rise17 < (1LL << GAMMA_BLACK_MODE_FRAC))
+		return -ERANGE;
+
+	for (i = 0; i < 3; i++) {
+		rise = pred[i] - e14;
+		eff = e14 + gamma_black_mode_mul_div(rise, rise17 + (s64)bias * (1LL << GAMMA_BLACK_MODE_FRAC), rise17);
+		eff = (eff + (1LL << (GAMMA_BLACK_MODE_FRAC - 1))) >> GAMMA_BLACK_MODE_FRAC;
+		set_gamma_code(gamma, base + 15 + i, clamp_t(s64, eff - gamma_node_offset[15 + i], 0, GAMMA_CODE_MAX));
+	}
+	if (!gamma_curve_is_valid(gamma, base))
+		return -ERANGE;
+	return 0;
+}
+#else
+static int gamma_black_mode_bank(u8 *gamma, int base, int bias)
+{
+	return -EOPNOTSUPP;
+}
+#endif
+
+// Both the VGMP and VGMN banks are changed, or neither is. id 0 is the left eye.
+static int gamma_black_mode_calc(u8 *gamma, int id)
+{
+	int bias = id == 0 ? GAMMA_BLACK_MODE_BIAS_LEFT : GAMMA_BLACK_MODE_BIAS_RIGHT;
+	u8 adjusted[GAMMA_SET_NUM_BYTES];
+	int ret;
+
+	memcpy(adjusted, gamma, sizeof(adjusted));
+	ret = gamma_black_mode_bank(adjusted, 0, bias);
+	if (!ret)
+		ret = gamma_black_mode_bank(adjusted, GAMMA_VGMN_BASE, bias);
+	if (!ret)
+		memcpy(gamma, adjusted, sizeof(adjusted));
+	return ret;
+}
+
+static int read_gamma_set(struct lpm026m648c_ctx *ctx, int id, u8 *gamma)
+{
+	u8 reg = LPM02648C_GAMMA_SET;
+
+	return mipi_dsi_generic_read(ctx->dsi[id], &reg, 1, gamma, GAMMA_SET_NUM_BYTES);
+}
+
+static int write_gamma_set(struct lpm026m648c_ctx *ctx, int id, const u8 *gamma)
+{
+	u8 payload[1 + GAMMA_SET_NUM_BYTES] = { LPM02648C_GAMMA_SET };
+
+	memcpy(&payload[1], gamma, GAMMA_SET_NUM_BYTES);
+	return mipi_dsi_generic_write(ctx->dsi[id], payload, sizeof(payload));
+}
+
+// Panel reset reloads the factory gamma from OTP, so one read per boot is enough.
+static void read_factory_gamma(struct lpm026m648c_ctx *ctx)
+{
+	unsigned int id, panel_num = ctx->is_dual_panel ? 2 : 1;
+	int ret;
+
+	for (id = 0; id < panel_num; id++) {
+		if (ctx->factory_gamma_valid[id])
+			continue;
+
+		// The msm DSI host returns 0 rather than an error for some failed reads.
+		ret = read_gamma_set(ctx, id, ctx->factory_gamma[id]);
+		if (ret != GAMMA_SET_NUM_BYTES) {
+			DRM_DEV_ERROR(ctx->dev, "failed to read panel %d gamma ( %d )\n", id, ret);
+			continue;
+		}
+		// The full register, so any later result can be recomputed offline.
+		DRM_DEV_INFO(ctx->dev, "panel %d factory gamma VGMP %*ph\n", id, GAMMA_VGMN_BASE * 2, ctx->factory_gamma[id]);
+		DRM_DEV_INFO(ctx->dev, "panel %d factory gamma VGMN %*ph\n", id, GAMMA_VGMN_BASE * 2,
+			     &ctx->factory_gamma[id][GAMMA_VGMN_BASE * 2]);
+		// The host can misreport a read, and a bad copy would later be written to the panel; retried next prepare.
+		if (!gamma_curve_is_valid(ctx->factory_gamma[id], 0) ||
+		    !gamma_curve_is_valid(ctx->factory_gamma[id], GAMMA_VGMN_BASE)) {
+			DRM_DEV_ERROR(ctx->dev, "panel %d factory gamma read isn't a valid curve, ignoring it\n", id);
+			continue;
+		}
+		ctx->factory_gamma_valid[id] = true;
+	}
+}
+
+// Writes the gamma black mode or the factory gamma, depending on ctx->gamma_black_mode.
+static void update_gamma_black_mode(struct lpm026m648c_ctx *ctx)
+{
+	unsigned int id, mode, panel_num = ctx->is_dual_panel ? 2 : 1;
+	u8 gamma[GAMMA_SET_NUM_BYTES];
+	int ret;
+
+	if (ctx->panel_vendor != VENDOR_BOE)
+		return;
+
+	for (id = 0; id < panel_num; id++) {
+		if (!ctx->factory_gamma_valid[id])
+			continue;
+
+		memcpy(gamma, ctx->factory_gamma[id], sizeof(gamma));
+		mode = ctx->gamma_black_mode;
+		if (mode) {
+			// On failure gamma is left at factory, which is written instead.
+			ret = gamma_black_mode_calc(gamma, id);
+			if (ret) {
+				DRM_DEV_ERROR(ctx->dev, "panel %d gamma black mode %u rejected, %s ( %d ), using factory gamma\n",
+					      id, mode, ret == -EINVAL ? "nodes 10-14 don't fit" :
+					      ret == -ERANGE ? "curve check failed" : "not supported", ret);
+				mode = 0;
+			}
+		}
+
+		ret = write_gamma_set(ctx, id, gamma);
+		if (ret < 0) {
+			DRM_DEV_ERROR(ctx->dev, "failed to write panel %d gamma ( %d )\n", id, ret);
+			continue;
+		}
+		DRM_DEV_INFO(ctx->dev, "panel %d gamma black mode %u, VGMP15-17 %d %d %d, VGMN15-17 %d %d %d\n", id, mode,
+			     get_gamma_code(gamma, 15), get_gamma_code(gamma, 16), get_gamma_code(gamma, 17),
+			     get_gamma_code(gamma, GAMMA_VGMN_BASE + 15), get_gamma_code(gamma, GAMMA_VGMN_BASE + 16),
+			     get_gamma_code(gamma, GAMMA_VGMN_BASE + 17));
+	}
 }
 
 static void dsi_write_panel_init_jdi(struct drm_panel *panel)
@@ -877,6 +1217,10 @@ static int lpm026m648c_unprepare(struct drm_panel *panel)
 	if (!ctx->prepared)
 		return 0;
 
+	mutex_lock(&ctx->gamma_lock);
+	ctx->gamma_safe_to_write = false;
+	mutex_unlock(&ctx->gamma_lock);
+
 	ret = lpm026m648c_power_off(ctx);
 	if (ret < 0)
 		DRM_DEV_ERROR(ctx->dev, "power_off failed ret = %d\n", ret);
@@ -919,6 +1263,16 @@ static int lpm026m648c_prepare(struct drm_panel *panel)
 	msleep(20);
 
 	dsi_write_panel_init(panel);
+
+	// Init leaves sleep-out OTP reload disabled (D6h), so this gamma survives enable.
+	mutex_lock(&ctx->gamma_lock);
+	if (ctx->panel_vendor == VENDOR_BOE) {
+		read_factory_gamma(ctx);
+		if (ctx->gamma_black_mode)
+			update_gamma_black_mode(ctx);
+	}
+	ctx->gamma_safe_to_write = true;
+	mutex_unlock(&ctx->gamma_lock);
 
 	ctx->prepared = true;
 
@@ -1451,6 +1805,8 @@ static int lpm026m648c_probe(struct mipi_dsi_device *dsi)
 	if (IS_ERR(ctx))
 		return PTR_ERR(ctx);
 
+	mutex_init(&ctx->gamma_lock);
+
 	ctx->panel.prepare_prev_first = true;
 
 	ctx->dphy = of_property_read_bool(dev->of_node, "dphy");
@@ -1547,6 +1903,53 @@ static void lpm026m648c_remove(struct mipi_dsi_device *dsi)
 	drm_panel_remove(&ctx->panel);
 }
 
+static ssize_t gamma_black_mode_show(struct device *dev,
+				     struct device_attribute *attr, char *buf)
+{
+	struct lpm026m648c_ctx *ctx = dev_get_drvdata(dev);
+
+	return sysfs_emit(buf, "%u\n", ctx->gamma_black_mode);
+}
+
+static ssize_t gamma_black_mode_store(struct device *dev,
+				      struct device_attribute *attr,
+				      const char *buf, size_t count)
+{
+	struct lpm026m648c_ctx *ctx = dev_get_drvdata(dev);
+	unsigned int mode;
+	int ret;
+
+	ret = kstrtouint(buf, 0, &mode);
+	if (ret)
+		return ret;
+	if (mode > GAMMA_BLACK_MODE_MAX)
+		return -EINVAL;
+
+	mutex_lock(&ctx->gamma_lock);
+	ctx->gamma_black_mode = mode;
+	if (ctx->gamma_safe_to_write)
+		update_gamma_black_mode(ctx);
+	mutex_unlock(&ctx->gamma_lock);
+
+	return count;
+}
+static DEVICE_ATTR_RW(gamma_black_mode);
+
+// Same on every panel; non-BOE panels store the mode but ignore it.
+static ssize_t gamma_black_mode_max_show(struct device *dev,
+					 struct device_attribute *attr, char *buf)
+{
+	return sysfs_emit(buf, "%d\n", GAMMA_BLACK_MODE_MAX);
+}
+static DEVICE_ATTR_RO(gamma_black_mode_max);
+
+static struct attribute *lpm026m648c_attrs[] = {
+	&dev_attr_gamma_black_mode.attr,
+	&dev_attr_gamma_black_mode_max.attr,
+	NULL,
+};
+ATTRIBUTE_GROUPS(lpm026m648c);
+
 static const struct of_device_id lpm026m648c_of_match[] = {
 	{ .compatible = "deckard-panel" },
 	{ }
@@ -1557,6 +1960,7 @@ static struct mipi_dsi_driver lpm026m648c_driver = {
 	.driver = {
 		.name = "deckard-panel",
 		.of_match_table = lpm026m648c_of_match,
+		.dev_groups = lpm026m648c_groups,
 	},
 	.probe = lpm026m648c_probe,
 	.remove = lpm026m648c_remove,
