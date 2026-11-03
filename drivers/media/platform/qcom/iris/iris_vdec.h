@@ -19,6 +19,8 @@ void iris_vdec_update_min_capture_bufs(struct iris_inst *inst);
 bool iris_vdec_drc_in_place(struct iris_inst *inst);
 int iris_vdec_streamon_input(struct iris_inst *inst);
 int iris_vdec_streamon_output(struct iris_inst *inst);
+bool iris_vdec_wait_first_ipsc(struct iris_inst *inst);
+bool iris_vdec_capture_fits_stream(struct iris_inst *inst);
 int iris_vdec_qbuf(struct iris_inst *inst, struct vb2_v4l2_buffer *vbuf);
 void iris_vdec_update_drc_format(struct iris_inst *inst, const struct v4l2_format *old_fmt);
 int iris_vdec_drc_deferred_start(struct iris_inst *inst);

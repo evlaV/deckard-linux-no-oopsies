@@ -660,6 +660,7 @@ static void iris_hfi_gen2_read_input_subcr_params(struct iris_inst *inst)
 	    !(subsc_params.coded_frames & HFI_BITMASK_FRAME_MBS_ONLY_FLAG)) {
 		dev_err(core->dev, "unsupported content, bit depth: %x, pic_struct = %x\n",
 			subsc_params.bit_depth, subsc_params.coded_frames);
+		iris_vb2_queue_error(inst);
 		iris_inst_change_state(inst, IRIS_INST_ERROR);
 	}
 

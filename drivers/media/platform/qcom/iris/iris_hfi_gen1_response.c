@@ -161,6 +161,7 @@ static void iris_hfi_gen1_read_changed_params(struct iris_inst *inst,
 	if (event.bit_depth || !event.pic_struct) {
 		dev_err(core->dev, "unsupported content, bit depth: %x, pic_struct = %x\n",
 			event.bit_depth, event.pic_struct);
+		iris_vb2_queue_error(inst);
 		iris_inst_change_state(inst, IRIS_INST_ERROR);
 	}
 }

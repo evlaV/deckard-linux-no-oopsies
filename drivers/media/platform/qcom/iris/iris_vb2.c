@@ -191,10 +191,23 @@ int iris_vb2_start_streaming(struct vb2_queue *q, unsigned int count)
 		else
 			ret = iris_venc_streamon_input(inst);
 	} else if (V4L2_TYPE_IS_CAPTURE(q->type)) {
-		if (inst->domain == DECODER)
-			ret = iris_vdec_streamon_output(inst);
-		else
+		if (inst->domain == DECODER) {
+			bool ipsc_now = iris_vdec_wait_first_ipsc(inst);
+
+			/* The source change may have found unsupported content. */
+			if (inst->state == IRIS_INST_ERROR) {
+				ret = -EBUSY;
+			} else if (ipsc_now && !iris_vdec_capture_fits_stream(inst)) {
+				dev_err(inst->core->dev,
+					"capture buffers do not fit the stream, reconfigure capture after the source change event\n");
+				iris_vb2_queue_error(inst);
+				ret = -EINVAL;
+			} else {
+				ret = iris_vdec_streamon_output(inst);
+			}
+		} else {
 			ret = iris_venc_streamon_output(inst);
+		}
 	}
 	if (ret)
 		goto error;

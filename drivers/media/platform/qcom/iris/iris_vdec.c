@@ -3,6 +3,8 @@
  * Copyright (c) 2022-2024 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
+#include <linux/delay.h>
+#include <linux/jiffies.h>
 #include <linux/soc/qcom/ubwc.h>
 #include <media/v4l2-event.h>
 #include <media/v4l2-mem2mem.h>
@@ -437,6 +439,65 @@ int iris_vdec_streamon_input(struct iris_inst *inst)
 	inst->frame_counter = 0;
 
 	return iris_process_streamon_input(inst);
+}
+
+static bool iris_vdec_input_with_fw(struct iris_inst *inst)
+{
+	struct v4l2_m2m_buffer *m2m_buf, *n;
+
+	v4l2_m2m_for_each_src_buf_safe(inst->m2m_ctx, m2m_buf, n) {
+		if (to_iris_buffer(&m2m_buf->vb)->attr & BUF_ATTR_QUEUED)
+			return true;
+	}
+
+	return false;
+}
+
+#define IRIS_FIRST_IPSC_WAIT_MS	1000
+
+bool iris_vdec_wait_first_ipsc(struct iris_inst *inst)
+{
+	unsigned long start = jiffies;
+	unsigned long timeout = start + msecs_to_jiffies(IRIS_FIRST_IPSC_WAIT_MS);
+	bool waited = false;
+
+	while (inst->state == IRIS_INST_INPUT_STREAMING &&
+	       !(inst->sub_state & IRIS_INST_SUB_FIRST_IPSC) &&
+	       iris_vdec_input_with_fw(inst) && time_before(jiffies, timeout)) {
+		waited = true;
+		mutex_unlock(&inst->lock);
+		usleep_range(500, 1000);
+		mutex_lock(&inst->lock);
+	}
+
+	if (waited && !(inst->sub_state & IRIS_INST_SUB_FIRST_IPSC))
+		dev_warn(inst->core->dev,
+			 "first source change not handled within %u ms, starting capture anyway (state %d)\n",
+			 IRIS_FIRST_IPSC_WAIT_MS, inst->state);
+	else if (waited)
+		dev_dbg(inst->core->dev, "first source change handled after %u ms\n",
+			 jiffies_to_msecs(jiffies - start));
+
+	return waited && (inst->sub_state & IRIS_INST_SUB_FIRST_IPSC);
+}
+
+bool iris_vdec_capture_fits_stream(struct iris_inst *inst)
+{
+	struct vb2_queue *q = v4l2_m2m_get_dst_vq(inst->m2m_ctx);
+	u32 size = inst->fmt_dst->fmt.pix_mp.plane_fmt[0].sizeimage;
+	struct vb2_buffer *vb;
+	unsigned int i;
+
+	if (vb2_get_num_buffers(q) < inst->buffers[BUF_OUTPUT].min_count)
+		return false;
+
+	for (i = 0; i < q->max_num_buffers; i++) {
+		vb = vb2_get_buffer(q, i);
+		if (vb && vb2_plane_size(vb, 0) < size)
+			return false;
+	}
+
+	return true;
 }
 
 int iris_vdec_streamon_output(struct iris_inst *inst)
