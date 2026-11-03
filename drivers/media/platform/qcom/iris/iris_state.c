@@ -269,6 +269,10 @@ bool iris_allow_cmd(struct iris_inst *inst, u32 cmd)
 	struct vb2_queue *src_q = v4l2_m2m_get_src_vq(inst->m2m_ctx);
 	struct vb2_queue *dst_q = v4l2_m2m_get_dst_vq(inst->m2m_ctx);
 
+	/* Failed-session cleanup may already have freed the HFI command buffer. */
+	if (inst->state == IRIS_INST_ERROR)
+		return false;
+
 	if (cmd == V4L2_DEC_CMD_START || cmd == V4L2_ENC_CMD_START) {
 		if (vb2_is_streaming(src_q) || vb2_is_streaming(dst_q))
 			if (iris_drc_pending(inst) || iris_drain_pending(inst))
