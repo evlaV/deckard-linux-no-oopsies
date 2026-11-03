@@ -348,6 +348,7 @@ static int iris_hfi_gen2_handle_input_buffer(struct iris_inst *inst,
 static int iris_hfi_gen2_handle_output_buffer(struct iris_inst *inst,
 					      struct iris_hfi_buffer *hfi_buffer)
 {
+	struct iris_inst_hfi_gen2 *inst_hfi_gen2 = to_iris_inst_hfi_gen2(inst);
 	struct v4l2_m2m_ctx *m2m_ctx = inst->m2m_ctx;
 	struct v4l2_m2m_buffer *m2m_buffer, *n;
 	struct iris_buffer *buf;
@@ -380,6 +381,16 @@ static int iris_hfi_gen2_handle_output_buffer(struct iris_inst *inst,
 
 	if (!(buf->attr & BUF_ATTR_QUEUED))
 		return -EINVAL;
+
+	if (inst->domain == DECODER && inst->state == IRIS_INST_STREAMING &&
+	    !inst_hfi_gen2->output_stopping &&
+	    !inst->sequence_cap && !hfi_buffer->data_size && !hfi_buffer->flags) {
+		buf->attr &= ~BUF_ATTR_QUEUED;
+		buf->attr |= BUF_ATTR_DEFERRED;
+		if (inst->drc_start_pending)
+			return 0;
+		return iris_queue_buffer(inst, buf);
+	}
 
 	if (inst->domain == DECODER && inst->drc_start_pending &&
 	    (hfi_buffer->flags & HFI_BUF_FW_FLAG_PSC_LAST)) {
