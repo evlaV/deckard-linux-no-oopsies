@@ -689,7 +689,8 @@ static int iris_hfi_gen2_handle_src_change(struct iris_inst *inst,
 
 	iris_hfi_gen2_read_input_subcr_params(inst);
 	iris_vdec_update_drc_format(inst, &old_fmt);
-	iris_vdec_src_change(inst);
+	if (!iris_vdec_drc_in_place(inst))
+		iris_vdec_src_change(inst);
 
 	return 0;
 }

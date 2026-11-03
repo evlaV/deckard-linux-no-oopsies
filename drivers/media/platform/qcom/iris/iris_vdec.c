@@ -555,6 +555,28 @@ static bool iris_vdec_last_buf_in_done_list(struct vb2_queue *q)
 	return found;
 }
 
+/*
+ * A source change that leaves the capture format unchanged and needs no more
+ * capture buffers than are already allocated (typically the first one, after
+ * userspace configured and started CAPTURE from the bitstream headers) needs
+ * nothing from userspace. Resume in place as if V4L2_DEC_CMD_START had been
+ * sent: the empty PSC_LAST buffer is held back and decoding continues, instead
+ * of signalling an event and ending the capture queue with a LAST buffer that
+ * clients which see no format change treat as end of stream.
+ */
+bool iris_vdec_drc_in_place(struct iris_inst *inst)
+{
+	/* Unsupported content moves the instance to ERROR: let userspace see the event. */
+	if (inst->state != IRIS_INST_STREAMING ||
+	    !vb2_is_streaming(v4l2_m2m_get_dst_vq(inst->m2m_ctx)) ||
+	    !iris_vdec_drc_capture_sufficient(inst))
+		return false;
+
+	inst->drc_start_pending = true;
+
+	return true;
+}
+
 int iris_vdec_start_cmd(struct iris_inst *inst)
 {
 	const struct iris_hfi_session_ops *hfi_ops = inst->hfi_session_ops;
@@ -656,7 +678,7 @@ int iris_vdec_drc_deferred_start(struct iris_inst *inst)
 		return 0;
 
 	inst->drc_start_pending = false;
-	if (inst->state != IRIS_INST_STREAMING || READ_ONCE(inst->core->removed))
+	if (inst->state != IRIS_INST_STREAMING)
 		return 0;
 
 	return iris_vdec_start_cmd(inst);
