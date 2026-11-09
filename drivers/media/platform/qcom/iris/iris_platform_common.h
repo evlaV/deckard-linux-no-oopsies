@@ -23,6 +23,7 @@ struct iris_inst;
 #define DEFAULT_MAX_HOST_BURST_BUF_COUNT	256
 #define DEFAULT_FPS				30
 #define MAXIMUM_FPS				480
+#define IRIS_DEFAULT_CLK_FREQ_OVERRIDE		600000000
 #define NUM_MBS_8K                             ((8192 * 4352) / 256)
 #define MIN_QP_8BIT				1
 #define MAX_QP					51

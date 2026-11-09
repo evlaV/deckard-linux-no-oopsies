@@ -73,6 +73,10 @@ struct dentry;
  * @root: debugfs root directory
  * @fw_debug: firmware debug log mask
  * @hw_response_timeout: hardware response timeout
+ * @fps_override: fps used for clock scaling, 0 uses the measured input rate
+ * @clk_freq_override: forced core clock rate in Hz,
+ *		       0 means IRIS_DEFAULT_CLK_FREQ_OVERRIDE
+ * @clk_auto: use the computed core clock rate instead of clk_freq_override
  * @lock: a lock for this structure
  * @response_packet: a pointer to response packet from fw to driver
  * @header_id: id of packet header
@@ -122,6 +126,9 @@ struct iris_core {
 	struct dentry				*root;
 	u32					fw_debug;
 	u32					hw_response_timeout;
+	u32					fps_override;
+	u64					clk_freq_override;
+	bool					clk_auto;
 	struct mutex				lock; /* lock for core related operations */
 	u8					*response_packet;
 	u32					header_id;

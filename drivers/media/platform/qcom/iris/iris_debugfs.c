@@ -70,6 +70,10 @@ void iris_debugfs_init(struct iris_core *core)
 			   &core->power.clk_freq_target);
 	debugfs_create_file("clk_rate", 0400, core->root, core,
 			    &iris_clk_rate_fops);
+	debugfs_create_u32("fps_override", 0600, core->root, &core->fps_override);
+	debugfs_create_u64("clk_freq_override", 0600, core->root,
+			   &core->clk_freq_override);
+	debugfs_create_bool("clk_auto", 0600, core->root, &core->clk_auto);
 }
 
 void iris_debugfs_deinit(struct iris_core *core)

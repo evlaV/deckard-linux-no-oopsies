@@ -79,7 +79,7 @@ static int iris_set_clocks(struct iris_inst *inst)
 {
 	struct iris_core *core = inst->core;
 	struct iris_inst *instance;
-	u64 freq = 0;
+	u64 freq = 0, freq_override;
 	int ret;
 
 	mutex_lock(&core->lock);
@@ -91,6 +91,10 @@ static int iris_set_clocks(struct iris_inst *inst)
 	}
 
 	core->power.clk_freq_target = freq;
+	if (!READ_ONCE(core->clk_auto)) {
+		freq_override = READ_ONCE(core->clk_freq_override);
+		freq = freq_override ?: IRIS_DEFAULT_CLK_FREQ_OVERRIDE;
+	}
 
 	core->power.clk_freq = freq;
 	ret = iris_opp_set_rate(core->dev, freq);

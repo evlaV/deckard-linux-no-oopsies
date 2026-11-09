@@ -292,6 +292,8 @@ static int iris_probe(struct platform_device *pdev)
 	core->dev = dev;
 	core->fw_debug = IRIS_FW_DEBUG_DEFAULT;
 	core->hw_response_timeout = HW_RESPONSE_TIMEOUT_VALUE;
+	core->fps_override = MAXIMUM_FPS;
+	core->clk_freq_override = IRIS_DEFAULT_CLK_FREQ_OVERRIDE;
 
 	core->state = IRIS_CORE_DEINIT;
 	mutex_init(&core->lock);
