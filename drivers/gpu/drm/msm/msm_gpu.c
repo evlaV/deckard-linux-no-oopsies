@@ -17,6 +17,7 @@
 #include <linux/string_helpers.h>
 #include <linux/devcoredump.h>
 #include <linux/sched/task.h>
+#include <uapi/linux/sched/types.h>
 
 /*
  * Power Management:
@@ -1123,6 +1124,20 @@ int msm_gpu_init(struct drm_device *drm, struct platform_device *pdev,
 	}
 
 	sched_set_fifo_low(gpu->worker->task);
+
+	/* With kernel.sched_util_clamp_min_rt_default = 64, RT tasks are not guaranteed
+	 * the top OPP while runnable. Give gpu-worker a custom floor of 512, which was
+	 * experimentally determined to give it sufficient bandwidth to complete its work.
+	 */
+	{
+		struct sched_attr ua = {
+			.sched_flags = SCHED_FLAG_KEEP_ALL | SCHED_FLAG_UTIL_CLAMP_MIN,
+			.sched_util_min = SCHED_CAPACITY_SCALE / 2,
+		};
+
+		if (sched_setattr_nocheck(gpu->worker->task, &ua))
+			pr_warn_once("msm: could not set uclamp_min on gpu-worker\n");
+	}
 
 	mutex_init(&gpu->active_lock);
 	mutex_init(&gpu->lock);
