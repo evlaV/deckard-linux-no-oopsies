@@ -3,11 +3,13 @@
  * Copyright (c) Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
+#include <linux/clk.h>
 #include <linux/debugfs.h>
 #include <linux/pm_runtime.h>
 
 #include "iris_core.h"
 #include "iris_debugfs.h"
+#include "iris_resources.h"
 
 static int iris_fw_level_get(void *data, u64 *val)
 {
@@ -43,11 +45,31 @@ static int iris_fw_level_set(void *data, u64 val)
 DEFINE_DEBUGFS_ATTRIBUTE(iris_fw_level_fops, iris_fw_level_get,
 			 iris_fw_level_set, "0x%08llx\n");
 
+static int iris_clk_rate_get(void *data, u64 *val)
+{
+	struct iris_core *core = data;
+	struct clk *clk = iris_get_clk_by_type(core, IRIS_HW_CLK);
+
+	if (!clk)
+		return -ENODEV;
+
+	*val = clk_get_rate(clk);
+
+	return 0;
+}
+
+DEFINE_DEBUGFS_ATTRIBUTE(iris_clk_rate_fops, iris_clk_rate_get, NULL, "%llu\n");
+
 void iris_debugfs_init(struct iris_core *core)
 {
 	core->root = debugfs_create_dir("iris", NULL);
 	debugfs_create_file("fw_level", 0600, core->root, core,
 			    &iris_fw_level_fops);
+	debugfs_create_u64("clk_freq", 0400, core->root, &core->power.clk_freq);
+	debugfs_create_u64("clk_freq_target", 0400, core->root,
+			   &core->power.clk_freq_target);
+	debugfs_create_file("clk_rate", 0400, core->root, core,
+			    &iris_clk_rate_fops);
 }
 
 void iris_debugfs_deinit(struct iris_core *core)

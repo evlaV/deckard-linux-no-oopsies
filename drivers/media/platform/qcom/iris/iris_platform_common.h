@@ -216,6 +216,7 @@ struct bw_info {
 
 struct iris_core_power {
 	u64 clk_freq;
+	u64 clk_freq_target;
 	u64 icc_bw;
 };
 

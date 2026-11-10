@@ -90,6 +90,8 @@ static int iris_set_clocks(struct iris_inst *inst)
 		freq += instance->power.min_freq;
 	}
 
+	core->power.clk_freq_target = freq;
+
 	core->power.clk_freq = freq;
 	ret = iris_opp_set_rate(core->dev, freq);
 	mutex_unlock(&core->lock);

@@ -97,7 +97,7 @@ int iris_disable_power_domains(struct iris_core *core, struct device *pd_dev)
 	return ret;
 }
 
-static struct clk *iris_get_clk_by_type(struct iris_core *core, enum platform_clk_type clk_type)
+struct clk *iris_get_clk_by_type(struct iris_core *core, enum platform_clk_type clk_type)
 {
 	const struct platform_clk_data *clk_tbl;
 	u32 clk_cnt, i, j;
