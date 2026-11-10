@@ -259,6 +259,8 @@ void iris_vb2_stop_streaming(struct vb2_queue *q)
 			 "resolution change drain timed out, stopping CAPTURE\n");
 
 	mutex_lock(&inst->lock);
+	inst->drc_start_pending = false;
+	inst->drc_unlatch_last = false;
 
 	if (!V4L2_TYPE_IS_OUTPUT(q->type) &&
 	    !V4L2_TYPE_IS_CAPTURE(q->type))

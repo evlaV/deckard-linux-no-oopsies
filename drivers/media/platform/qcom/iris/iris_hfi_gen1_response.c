@@ -169,6 +169,7 @@ static void iris_hfi_gen1_event_seq_changed(struct iris_inst *inst,
 					    struct hfi_msg_event_notify_pkt *pkt)
 {
 	struct hfi_session_flush_pkt flush_pkt;
+	struct v4l2_format old_fmt = *inst->fmt_dst;
 	u32 num_properties_changed;
 	int ret;
 
@@ -192,6 +193,7 @@ static void iris_hfi_gen1_event_seq_changed(struct iris_inst *inst,
 	}
 
 	iris_hfi_gen1_read_changed_params(inst, pkt);
+	iris_vdec_update_drc_format(inst, &old_fmt);
 
 	if (inst->state != IRIS_INST_ERROR && !(inst->sub_state & IRIS_INST_SUB_FIRST_IPSC)) {
 
@@ -702,6 +704,8 @@ static void iris_hfi_gen1_handle_response(struct iris_core *core, void *response
 		if (inst) {
 			mutex_lock(&inst->lock);
 			iris_hfi_gen1_session_event_notify(inst, hdr);
+			if (inst->domain == DECODER && iris_vdec_drc_deferred_start(inst))
+				iris_inst_change_state(inst, IRIS_INST_ERROR);
 			mutex_unlock(&inst->lock);
 		} else {
 			iris_hfi_gen1_sys_event_notify(core, hdr);
@@ -739,6 +743,8 @@ static void iris_hfi_gen1_handle_response(struct iris_core *core, void *response
 				complete(&inst->completion);
 			}
 		}
+		if (inst->domain == DECODER && iris_vdec_drc_deferred_start(inst))
+			iris_inst_change_state(inst, IRIS_INST_ERROR);
 		mutex_unlock(&inst->lock);
 
 		break;

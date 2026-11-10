@@ -382,6 +382,17 @@ int iris_vdec_subscribe_event(struct iris_inst *inst, const struct v4l2_event_su
 	return ret;
 }
 
+void iris_vdec_update_drc_format(struct iris_inst *inst, const struct v4l2_format *old_fmt)
+{
+	const struct v4l2_pix_format_mplane *old = &old_fmt->fmt.pix_mp;
+	const struct v4l2_pix_format_mplane *cap = &inst->fmt_dst->fmt.pix_mp;
+
+	inst->drc_cap_fmt_unchanged = cap->pixelformat == old->pixelformat &&
+		cap->width == old->width && cap->height == old->height &&
+		cap->plane_fmt[0].bytesperline == old->plane_fmt[0].bytesperline;
+	inst->drc_start_pending = false;
+}
+
 void iris_vdec_src_change(struct iris_inst *inst)
 {
 	struct v4l2_m2m_ctx *m2m_ctx = inst->m2m_ctx;
@@ -505,14 +516,75 @@ int iris_vdec_qbuf(struct iris_inst *inst, struct vb2_v4l2_buffer *vbuf)
 	return iris_queue_buffer(inst, buf);
 }
 
+/* Check actual allocations: the firmware's new size is not the allocated size. */
+static bool iris_vdec_drc_capture_sufficient(struct iris_inst *inst)
+{
+	struct vb2_queue *q = v4l2_m2m_get_dst_vq(inst->m2m_ctx);
+	u32 size = inst->fmt_dst->fmt.pix_mp.plane_fmt[0].sizeimage;
+	struct vb2_buffer *vb;
+	unsigned int i;
+
+	if (!inst->drc_cap_fmt_unchanged ||
+	    vb2_get_num_buffers(q) < inst->buffers[BUF_OUTPUT].min_count)
+		return false;
+
+	for (i = 0; i < q->max_num_buffers; i++) {
+		vb = vb2_get_buffer(q, i);
+		if (vb && vb2_plane_size(vb, 0) < size)
+			return false;
+	}
+
+	return true;
+}
+
+static bool iris_vdec_last_buf_in_done_list(struct vb2_queue *q)
+{
+	struct vb2_buffer *vb;
+	unsigned long flags;
+	bool found = false;
+
+	spin_lock_irqsave(&q->done_lock, flags);
+	list_for_each_entry(vb, &q->done_list, done_entry) {
+		if (to_vb2_v4l2_buffer(vb)->flags & V4L2_BUF_FLAG_LAST) {
+			found = true;
+			break;
+		}
+	}
+	spin_unlock_irqrestore(&q->done_lock, flags);
+
+	return found;
+}
+
 int iris_vdec_start_cmd(struct iris_inst *inst)
 {
 	const struct iris_hfi_session_ops *hfi_ops = inst->hfi_session_ops;
 	enum iris_inst_sub_state clear_sub_state = 0;
 	struct vb2_queue *dst_vq;
+	bool drc;
 	int ret;
 
 	dst_vq = v4l2_m2m_get_dst_vq(inst->m2m_ctx);
+
+	if ((inst->sub_state & IRIS_INST_SUB_DRC) &&
+	    !(inst->sub_state & IRIS_INST_SUB_DRC_LAST)) {
+		if (!iris_vdec_drc_capture_sufficient(inst))
+			return -EBUSY;
+		inst->drc_start_pending = true;
+		return 0;
+	}
+
+	drc = iris_drc_pending(inst);
+	if (drc) {
+		ret = iris_alloc_and_queue_input_int_bufs(inst);
+		if (ret)
+			return ret;
+		ret = iris_set_stage(inst, STAGE);
+		if (ret)
+			return ret;
+		ret = iris_set_pipe(inst, PIPE);
+		if (ret)
+			return ret;
+	}
 
 	if (inst->sub_state & IRIS_INST_SUB_DRC &&
 	    inst->sub_state & IRIS_INST_SUB_DRC_LAST) {
@@ -565,7 +637,29 @@ int iris_vdec_start_cmd(struct iris_inst *inst)
 		return -EBUSY;
 	}
 
-	return iris_inst_change_sub_state(inst, clear_sub_state, 0);
+	ret = iris_inst_change_sub_state(inst, clear_sub_state, 0);
+	if (ret)
+		return ret;
+
+	inst->last_buffer_dequeued = false;
+	v4l2_m2m_clear_state(inst->m2m_ctx);
+	if (drc && iris_vdec_last_buf_in_done_list(dst_vq))
+		inst->drc_unlatch_last = true;
+
+	return iris_queue_deferred_buffers(inst, BUF_OUTPUT);
+}
+
+/* Called after the response batch, with inst->lock held. */
+int iris_vdec_drc_deferred_start(struct iris_inst *inst)
+{
+	if (!inst->drc_start_pending || !iris_drc_pending(inst))
+		return 0;
+
+	inst->drc_start_pending = false;
+	if (inst->state != IRIS_INST_STREAMING || READ_ONCE(inst->core->removed))
+		return 0;
+
+	return iris_vdec_start_cmd(inst);
 }
 
 int iris_vdec_stop_cmd(struct iris_inst *inst)

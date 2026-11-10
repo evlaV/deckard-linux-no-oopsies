@@ -286,6 +286,11 @@ int iris_close(struct file *filp)
 {
 	struct iris_inst *inst = iris_get_inst(filp);
 
+	mutex_lock(&inst->lock);
+	inst->drc_start_pending = false;
+	inst->drc_unlatch_last = false;
+	mutex_unlock(&inst->lock);
+
 	v4l2_ctrl_handler_free(&inst->ctrl_handler);
 	v4l2_m2m_ctx_release(inst->m2m_ctx);
 	v4l2_m2m_release(inst->m2m_dev);
@@ -564,6 +569,28 @@ static int iris_g_parm(struct file *filp, void *fh, struct v4l2_streamparm *a)
 		return -EINVAL;
 }
 
+static int iris_dqbuf(struct file *filp, void *fh, struct v4l2_buffer *b)
+{
+	struct iris_inst *inst = iris_get_inst(filp);
+	struct vb2_queue *q;
+	int ret;
+
+	/* The blocking dequeue must not hold the lock used by the response handler. */
+	ret = v4l2_m2m_ioctl_dqbuf(filp, fh, b);
+	if (ret || b->type != V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE)
+		return ret;
+
+	mutex_lock(&inst->lock);
+	if (inst->drc_unlatch_last && (b->flags & V4L2_BUF_FLAG_LAST)) {
+		inst->drc_unlatch_last = false;
+		q = v4l2_m2m_get_dst_vq(inst->m2m_ctx);
+		vb2_clear_last_buffer_dequeued(q);
+	}
+	mutex_unlock(&inst->lock);
+
+	return 0;
+}
+
 static int iris_dec_cmd(struct file *filp, void *fh,
 			struct v4l2_decoder_cmd *dec)
 {
@@ -667,7 +694,7 @@ static const struct v4l2_ioctl_ops iris_v4l2_ioctl_ops_dec = {
 	.vidioc_prepare_buf             = v4l2_m2m_ioctl_prepare_buf,
 	.vidioc_expbuf                  = v4l2_m2m_ioctl_expbuf,
 	.vidioc_qbuf                    = v4l2_m2m_ioctl_qbuf,
-	.vidioc_dqbuf                   = v4l2_m2m_ioctl_dqbuf,
+	.vidioc_dqbuf                   = iris_dqbuf,
 	.vidioc_remove_bufs             = v4l2_m2m_ioctl_remove_bufs,
 	.vidioc_querycap                = iris_querycap,
 	.vidioc_g_selection             = iris_g_selection,

@@ -55,6 +55,9 @@ struct iris_hfi_session_ops;
  * @codec: codec type
  * @last_buffer_dequeued: a flag to indicate that last buffer is sent by driver
  * @drc_wq: woken when IRIS_INST_SUB_DRC_LAST is set
+ * @drc_cap_fmt_unchanged: source change preserves the capture buffer layout
+ * @drc_start_pending: START waiting for firmware PSC_LAST
+ * @drc_unlatch_last: clear vb2 LAST latch when an old LAST buffer is dequeued
  * @last_buf_ns: start time of received input buffer for current one second FPS window
  * @frame_counter: input buffer counter for current one second FPS window
  * @frame_rate: frame rate of current instance
@@ -103,6 +106,9 @@ struct iris_inst {
 	u32				codec;
 	bool				last_buffer_dequeued;
 	wait_queue_head_t		drc_wq;
+	bool				drc_cap_fmt_unchanged;
+	bool				drc_start_pending;
+	bool				drc_unlatch_last;
 	u64				last_buf_ns;
 	u32				frame_counter;
 	u32				frame_rate;

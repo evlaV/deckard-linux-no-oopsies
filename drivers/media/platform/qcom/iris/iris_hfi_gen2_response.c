@@ -351,7 +351,7 @@ static int iris_hfi_gen2_handle_output_buffer(struct iris_inst *inst,
 	struct v4l2_m2m_ctx *m2m_ctx = inst->m2m_ctx;
 	struct v4l2_m2m_buffer *m2m_buffer, *n;
 	struct iris_buffer *buf;
-	bool found = false;
+	bool found = false, strip_last = false;
 	int ret;
 
 	if (hfi_buffer->flags & HFI_BUF_FW_FLAG_LAST) {
@@ -381,6 +381,16 @@ static int iris_hfi_gen2_handle_output_buffer(struct iris_inst *inst,
 	if (!(buf->attr & BUF_ATTR_QUEUED))
 		return -EINVAL;
 
+	if (inst->domain == DECODER && inst->drc_start_pending &&
+	    (hfi_buffer->flags & HFI_BUF_FW_FLAG_PSC_LAST)) {
+		if (!hfi_buffer->data_size) {
+			buf->attr &= ~BUF_ATTR_QUEUED;
+			buf->attr |= BUF_ATTR_DEFERRED;
+			return 0;
+		}
+		strip_last = true;
+	}
+
 	buf->data_offset = hfi_buffer->data_offset;
 	buf->data_size = hfi_buffer->data_size;
 	buf->timestamp = hfi_buffer->timestamp;
@@ -389,6 +399,8 @@ static int iris_hfi_gen2_handle_output_buffer(struct iris_inst *inst,
 	buf->attr |= BUF_ATTR_DEQUEUED;
 
 	buf->flags = iris_hfi_gen2_get_driver_buffer_flags(inst, hfi_buffer->flags);
+	if (strip_last)
+		buf->flags &= ~V4L2_BUF_FLAG_LAST;
 
 	/*
 	 * The empty buffer that ends a drain (LAST) or a source change
@@ -665,6 +677,7 @@ static void iris_hfi_gen2_read_input_subcr_params(struct iris_inst *inst)
 static int iris_hfi_gen2_handle_src_change(struct iris_inst *inst,
 					   struct iris_hfi_packet *pkt)
 {
+	struct v4l2_format old_fmt = *inst->fmt_dst;
 	int ret;
 
 	if (pkt->port != HFI_PORT_BITSTREAM)
@@ -675,6 +688,7 @@ static int iris_hfi_gen2_handle_src_change(struct iris_inst *inst,
 		return ret;
 
 	iris_hfi_gen2_read_input_subcr_params(inst);
+	iris_vdec_update_drc_format(inst, &old_fmt);
 	iris_vdec_src_change(inst);
 
 	return 0;
@@ -962,6 +976,9 @@ static int iris_hfi_gen2_handle_session_response(struct iris_core *core,
 			pkt += packet->size;
 		}
 	}
+
+	if (inst->domain == DECODER && iris_vdec_drc_deferred_start(inst))
+		iris_inst_change_state(inst, IRIS_INST_ERROR);
 
 	if (dequeue)
 		iris_hfi_gen2_handle_dequeue_buffers(inst);
