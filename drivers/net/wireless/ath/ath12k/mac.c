@@ -1600,9 +1600,12 @@ int ath12k_mac_vdev_stop(struct ath12k_link_vif *arvif)
 		goto err;
 	}
 
-	WARN_ON(ar->num_started_vdevs == 0);
+	if (arvif->vdev_started) {
+		arvif->vdev_started = false;
+		WARN_ON(ar->num_started_vdevs == 0);
+		ar->num_started_vdevs--;
+	}
 
-	ar->num_started_vdevs--;
 	ath12k_dbg(ar->ab, ATH12K_DBG_MAC, "vdev %pM stopped, vdev_id %d\n",
 		   ahvif->vif->addr, arvif->vdev_id);
 
@@ -10816,6 +10819,7 @@ err_vdev_del:
 
 err:
 	arvif->is_created = false;
+	arvif->vdev_started = false;
 	arvif->ar = NULL;
 	return ret;
 }
@@ -11124,6 +11128,7 @@ err_vdev_del:
 
 	/* TODO: recal traffic pause state based on the available vdevs */
 	arvif->is_created = false;
+	arvif->vdev_started = false;
 	arvif->ar = NULL;
 
 	return ret;
@@ -11651,7 +11656,30 @@ ath12k_mac_vdev_start_restart(struct ath12k_link_vif *arvif,
 static int ath12k_mac_vdev_start(struct ath12k_link_vif *arvif,
 				 struct ieee80211_chanctx_conf *ctx)
 {
-	return ath12k_mac_vdev_start_restart(arvif, ctx, false);
+	int ret;
+
+	/* A station vdev is stopped when its BSS peer is removed, not when
+	 * its channel context is unassigned. If mac80211 moves the station
+	 * to another channel context while the peer exists, the vdev is
+	 * still running here: stop it before starting it again, so that
+	 * firmware does not get a second start and the vdev is counted once.
+	 */
+	if (arvif->vdev_started) {
+		ath12k_dbg(arvif->ar->ab, ATH12K_DBG_MAC,
+			   "vdev %d still running, stopping it before start\n",
+			   arvif->vdev_id);
+		ret = ath12k_mac_vdev_stop(arvif);
+		if (ret)
+			return ret;
+	}
+
+	ret = ath12k_mac_vdev_start_restart(arvif, ctx, false);
+	if (ret)
+		return ret;
+
+	arvif->vdev_started = true;
+
+	return 0;
 }
 
 static int ath12k_mac_vdev_restart(struct ath12k_link_vif *arvif,

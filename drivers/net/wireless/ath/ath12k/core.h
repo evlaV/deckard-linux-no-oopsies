@@ -325,6 +325,8 @@ struct ath12k_link_vif {
 
 	bool is_created;
 	bool is_started;
+	/* vdev is running in firmware and counted in ar->num_started_vdevs */
+	bool vdev_started;
 	bool is_up;
 	u8 bssid[ETH_ALEN];
 	struct cfg80211_bitrate_mask bitrate_mask;
