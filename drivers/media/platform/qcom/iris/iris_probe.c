@@ -253,6 +253,7 @@ static void iris_remove(struct platform_device *pdev)
 	if (!core)
 		return;
 
+	disable_irq(core->irq);
 	cancel_delayed_work_sync(&core->sys_error_handler);
 
 	iris_core_deinit(core);
