@@ -501,6 +501,13 @@ static void get_comm_cmdline(struct msm_gem_submit *submit, char **comm, char **
 	put_task_struct(task);
 }
 
+static void hangcheck_ring_timer_reset(struct msm_gpu *gpu, struct msm_ringbuffer *ring)
+{
+	struct msm_drm_private *priv = gpu->dev->dev_private;
+	mod_timer(&ring->hangcheck_timer,
+			  round_jiffies_up(jiffies + msecs_to_jiffies(priv->hangcheck_period)));
+}
+
 static void recover_worker(struct kthread_work *work)
 {
 	struct msm_gpu *gpu = container_of(work, struct msm_gpu, recover_work);
@@ -681,6 +688,13 @@ static void recover_worker(struct kthread_work *work)
 	pm_runtime_put(&gpu->pdev->dev);
 
 out_unlock:
+	/* make sure hangcheck timers are active on active rings */
+	for (i = 0; i < gpu->nr_rings + !!gpu->lpac_rb; i++) {
+		struct msm_ringbuffer *ring = i < gpu->nr_rings ? gpu->rb[i] : gpu->lpac_rb;
+		if (fence_after(ring->fctx->last_fence, ring->hangcheck_fence))
+			hangcheck_ring_timer_reset(gpu, ring);
+	}
+
 	mutex_unlock(&gpu->lock);
 
 	msm_gpu_retire(gpu);
@@ -723,13 +737,6 @@ void msm_gpu_fault_crashstate_capture(struct msm_gpu *gpu, struct msm_gpu_fault_
 
 resume_smmu:
 	mutex_unlock(&gpu->lock);
-}
-
-static void hangcheck_ring_timer_reset(struct msm_gpu *gpu, struct msm_ringbuffer *ring)
-{
-	struct msm_drm_private *priv = gpu->dev->dev_private;
-	mod_timer(&ring->hangcheck_timer,
-			  round_jiffies_up(jiffies + msecs_to_jiffies(priv->hangcheck_period)));
 }
 
 static bool made_progress(struct msm_gpu *gpu, struct msm_ringbuffer *ring)
