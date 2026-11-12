@@ -3,6 +3,7 @@
  * Copyright (c) 2022-2024 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
+#include <linux/soc/qcom/ubwc.h>
 #include <media/v4l2-mem2mem.h>
 
 #include "iris_hfi_gen2.h"
@@ -577,7 +578,7 @@ static void iris_hfi_gen2_read_input_subcr_params(struct iris_inst *inst)
 	else if (subsc_params.bit_depth == BIT_DEPTH_10 &&
 		 pixmp_op->pixelformat != V4L2_PIX_FMT_P010 &&
 		 pixmp_op->pixelformat != V4L2_PIX_FMT_QC10C)
-		pixmp_op->pixelformat = V4L2_PIX_FMT_P010;
+		 pixmp_op->pixelformat = core->ubwc_cfg->ubwc_enc_version ? V4L2_PIX_FMT_QC10C : V4L2_PIX_FMT_P010;
 
 	switch (pixmp_op->pixelformat) {
 	case V4L2_PIX_FMT_P010:
