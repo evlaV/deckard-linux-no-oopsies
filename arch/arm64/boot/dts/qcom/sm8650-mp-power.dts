@@ -2381,7 +2381,7 @@ sensor@60 {
 		reg = <0x18>;
 
 		interrupt-parent = <&pm8550b_gpios>;
-		interrupts = <10 IRQ_TYPE_LEVEL_HIGH>;
+		interrupts = <10 IRQ_TYPE_EDGE_FALLING>;
 
 		pinctrl-0 = <&strap_irq>;
 		pinctrl-names = "default";

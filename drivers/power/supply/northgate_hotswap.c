@@ -69,9 +69,14 @@
 // The Silego, by default, autonomously selects which battery is connected to Vsys. 
 // When the removable battery voltage crosses valid (6.25 V) / invalid (5.85 V) thresholds it 
 // automatically connects or disconnects the battery via hardware and raises no interrupt
-// The driver therefore must poll the FET and voltage status while the removable pack is attached 
-// so userspace can see the selection change.  
+// The driver therefore must poll the FET and voltage status so userspace can see the selection change.
+//
+// The poll runs whether or not the pack is attached, because it is also the safety net for a missed
+// pack interrupt (e.g. the aDSP serviced the Silego during suspend, or the edge was lost). If the
+// Silego's live PACK_CONNECTED bit disagrees with the driver's state for PACK_RESYNC_POLLS polls in
+// a row, the poll services the event the same way the interrupt handler would.
 #define STATUS_POLL_MS 1000
+#define PACK_RESYNC_POLLS 2
 #define FET_SELECTED_BATTERY_MASK (FET_INT_ACT | FET_REM_ACT)
 
 /* --- Driver state --- */
@@ -93,6 +98,7 @@ struct northgate_hotswap_psy {
 	struct i2c_client *battery_client;  /* max17320, dynamically created */
 	struct delayed_work hotswap_work;
 	unsigned int attach_retries;
+	unsigned int pack_mismatch_polls;
 
 	// Cross Charger
 	struct i2c_client *charger_client;  /* mp2652, dynamically created */
@@ -108,6 +114,8 @@ struct northgate_hotswap_psy {
 
 static int northgate_set_cross_charger(struct northgate_hotswap_psy *northgate, bool enable);
 static void northgate_hotswap_notify(struct northgate_hotswap_psy *northgate);
+static int northgate_hotswap_cache_and_clear_faults(struct northgate_hotswap_psy *northgate, int *pack_connected);
+static bool northgate_hotswap_set_pack_state(struct northgate_hotswap_psy *northgate, int pack_connected);
 
 /* --- Sysfs helpers with DEVICE_ATTR integrated --- */
 #define NORTHGATE_HOTSWAP_BIT_SHOW(name, reg, bit_macro)                                         \
@@ -522,7 +530,7 @@ static int northgate_hotswap_check_status(struct northgate_hotswap_psy *northgat
 		 * chargers on the same battery. Userspace re-evaluates and re-enables if still appropriate.
 		 * If the disable fails, cross_charger_enabled stays set and the next check retries.
 		 */
-		dev_warn(northgate->dev, "selected battery changed (0x%02x -> 0x%02x) while cross charging, disabling cross charger\n",
+		dev_warn(northgate->dev, "selected battery changed (0x%02x -> 0x%02lx) while cross charging, disabling cross charger\n",
 			 northgate->cross_charge_selected_battery, fet & FET_SELECTED_BATTERY_MASK);
 		northgate_set_cross_charger(northgate, false);
 
@@ -547,22 +555,44 @@ static void northgate_hotswap_status_poll(struct work_struct *work)
 {
 	struct northgate_hotswap_psy *northgate =
 		container_of(to_delayed_work(work), struct northgate_hotswap_psy, status_poll_work);
-	bool keep_polling;
-	int ret = 0;
+	bool changed = false;
+	int pack_connected;
+	int ret;
 
 	mutex_lock(&northgate->fault_mutex);
-	keep_polling = northgate->removable_pack_connected;
-	if (keep_polling)
-		ret = northgate_hotswap_check_status(northgate);
+
+	ret = northgate_hotswap_check_status(northgate);
+	if (ret > 0)
+		changed = true;
+
+	if (ret >= 0) {
+		pack_connected = !!(northgate->last_realtime_status & RT_PACK_CONNECTED);
+
+		if (pack_connected == northgate->removable_pack_connected) {
+			northgate->pack_mismatch_polls = 0;
+		} else if (++northgate->pack_mismatch_polls >= PACK_RESYNC_POLLS) {
+			// The interrupt handler normally gets here first. Reaching this point means a pack
+			// event was never delivered, so service it here. Clearing the latch also releases
+			// the alert line so the edge-triggered interrupt can fire again.
+			dev_warn(northgate->dev, "pack %s without an interrupt, resyncing\n",
+				 pack_connected ? "connected" : "disconnected");
+
+			northgate_hotswap_cache_and_clear_faults(northgate, &pack_connected);
+			northgate_hotswap_set_pack_state(northgate, pack_connected);
+			northgate_hotswap_check_status(northgate);
+			northgate->pack_mismatch_polls = 0;
+			changed = true;
+		}
+	}
+
 	mutex_unlock(&northgate->fault_mutex);
 
-	if (ret > 0) {
+	if (changed) {
 		northgate_hotswap_notify(northgate);
 		power_supply_changed(northgate->psy);
 	}
 
-	if (keep_polling)
-		schedule_delayed_work(&northgate->status_poll_work, msecs_to_jiffies(STATUS_POLL_MS));
+	schedule_delayed_work(&northgate->status_poll_work, msecs_to_jiffies(STATUS_POLL_MS));
 }
 
 static const struct property_entry max1720x_swnode_props[] = { PROPERTY_ENTRY_U8("nvm_reg", REMOVABLE_PACK_NVM_ADDR),
@@ -671,6 +701,28 @@ static int northgate_hotswap_cache_and_clear_faults(struct northgate_hotswap_psy
 	return ret;
 }
 
+// Apply a new pack-connected state: schedule the max17320 attach or removal, and stop cross
+// charging on removal. A negative pack_connected (failed read) is ignored.
+// Returns true if the state changed. Caller holds fault_mutex.
+static bool northgate_hotswap_set_pack_state(struct northgate_hotswap_psy *northgate, int pack_connected)
+{
+	if (pack_connected < 0 || pack_connected == northgate->removable_pack_connected)
+		return false;
+
+	cancel_delayed_work(&northgate->hotswap_work);
+	northgate->attach_retries = 0;
+	if (pack_connected) {
+		schedule_delayed_work(&northgate->hotswap_work, msecs_to_jiffies(REMOVABLE_PACK_ATTACH_DELAY_MS));
+	} else {
+		northgate_set_cross_charger(northgate, false);
+		schedule_delayed_work(&northgate->hotswap_work, 0);
+	}
+	northgate->removable_pack_connected = pack_connected;
+	northgate->pack_mismatch_polls = 0;
+
+	return true;
+}
+
 static irqreturn_t northgate_hotswap_irq_thread(int irq, void *dev_id)
 {
 	struct northgate_hotswap_psy *northgate = dev_id;
@@ -679,21 +731,7 @@ static irqreturn_t northgate_hotswap_irq_thread(int irq, void *dev_id)
 	mutex_lock(&northgate->fault_mutex);
 
 	northgate_hotswap_cache_and_clear_faults(northgate, &pack_connected);
-	if (pack_connected >= 0) {
-		if (pack_connected != northgate->removable_pack_connected) {
-			cancel_delayed_work(&northgate->hotswap_work);
-			northgate->attach_retries = 0;
-			if (pack_connected) {
-				schedule_delayed_work(&northgate->hotswap_work, msecs_to_jiffies(REMOVABLE_PACK_ATTACH_DELAY_MS));
-				schedule_delayed_work(&northgate->status_poll_work, msecs_to_jiffies(STATUS_POLL_MS));
-			} else {
-				northgate_set_cross_charger(northgate, false);
-				schedule_delayed_work(&northgate->hotswap_work, 0);
-				// Polling stops once the pack is removed
-			}
-			northgate->removable_pack_connected = pack_connected;
-		}
-	}
+	northgate_hotswap_set_pack_state(northgate, pack_connected);
 
 	// Internal UVLO or a pack event may force a selected battery change. Check immediately
 	northgate_hotswap_check_status(northgate);
@@ -784,12 +822,13 @@ static int northgate_hotswap_probe(struct i2c_client *client)
 			dev_err(&client->dev, "Unable to register IRQ %d err %d\n", client->irq, ret);
 			return ret;
 		}
+	} else {
+		dev_warn(dev, "northgate-hotswap has no IRQ, relying on the status poll\n");
 	}
 
 	// Determine Initial State
 	schedule_delayed_work(&northgate->hotswap_work, 0);
-	if (northgate->removable_pack_connected)
-		schedule_delayed_work(&northgate->status_poll_work, msecs_to_jiffies(STATUS_POLL_MS));
+	schedule_delayed_work(&northgate->status_poll_work, msecs_to_jiffies(STATUS_POLL_MS));
 
 	dev_info(dev, "northgate-hotswap loaded\n");
 	return 0;
