@@ -296,8 +296,10 @@ static void dpu_debugfs_sspp_init(struct dpu_kms *dpu_kms, struct dentry *debugf
 
 static ssize_t cac_blob_read(struct file *file, char __user *user_buf, size_t count, loff_t *ppos)
 {
-	struct cac_blob (*blobs)[PLANAR_CAC_SSPP_VIG] = file->private_data;
-	return simple_read_from_buffer(user_buf, count, ppos, blobs, sizeof(*blobs));
+	struct dpu_kms *dpu_kms = file->private_data;
+
+	return simple_read_from_buffer(user_buf, count, ppos, dpu_kms->cac_blobs,
+				       sizeof(dpu_kms->cac_blobs));
 }
 
 static ssize_t cac_blob_write(struct file *file, const char __user *user_buf, size_t count, loff_t *ppos)
