@@ -2002,6 +2002,14 @@ static const u32 *dpu_cac_filter_luts[] = {
 	[DPU_CAC_FILTER_BSPLINE] = dpu_cac_lut_bspline,
 };
 
+/* Channel 0 is red, 1 is blue. */
+static const u32 *dpu_crtc_cac_filter_lut(struct dpu_kms *dpu_kms, int filter, int channel)
+{
+	if (filter == DPU_CAC_FILTER_CUSTOM)
+		return dpu_kms->cac_filter_lut + channel * DPU_CAC_LUT_WORDS;
+	return dpu_cac_filter_luts[filter];
+}
+
 static bool dpu_crtc_cac_filters_changed(struct dpu_kms *dpu_kms)
 {
 	return dpu_kms->cac_filter_applied[0] != READ_ONCE(dpu_kms->cac_filter_red) ||
@@ -2029,7 +2037,8 @@ static void dpu_crtc_setup_cac_filters(struct dpu_kms *dpu_kms, struct dpu_hw_sc
 	} else {
 		scaler3_cfg->y_rgb_filter_cfg = FILTER_SEPARABLE_1D;
 		scaler3_cfg->lut_flag |= lut_y_sep;
-		memcpy(dpu_kms->cac_preset_lut, dpu_cac_filter_luts[red], DPU_CAC_LUT_WORDS * sizeof(u32));
+		memcpy(dpu_kms->cac_preset_lut, dpu_crtc_cac_filter_lut(dpu_kms, red, 0),
+		       DPU_CAC_LUT_WORDS * sizeof(u32));
 	}
 
 	if (blue == DPU_CAC_FILTER_BILINEAR) {
@@ -2037,8 +2046,8 @@ static void dpu_crtc_setup_cac_filters(struct dpu_kms *dpu_kms, struct dpu_hw_sc
 	} else {
 		scaler3_cfg->uv_filter_cfg = FILTER_SEPARABLE_1D;
 		scaler3_cfg->lut_flag |= lut_uv_sep;
-		memcpy(dpu_kms->cac_preset_lut + DPU_CAC_LUT_WORDS, dpu_cac_filter_luts[blue],
-		       DPU_CAC_LUT_WORDS * sizeof(u32));
+		memcpy(dpu_kms->cac_preset_lut + DPU_CAC_LUT_WORDS,
+		       dpu_crtc_cac_filter_lut(dpu_kms, blue, 1), DPU_CAC_LUT_WORDS * sizeof(u32));
 	}
 
 	/* With both channels bilinear, leave the coefficient LUT untouched, as before the presets existed. */

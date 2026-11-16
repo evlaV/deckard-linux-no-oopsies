@@ -85,6 +85,7 @@ enum dpu_cac_filter {
 	DPU_CAC_FILTER_CATMULLROM,
 	DPU_CAC_FILTER_LANCZOS2,
 	DPU_CAC_FILTER_BSPLINE,
+	DPU_CAC_FILTER_CUSTOM,	/* the table loaded through debugfs cac_filter_lut */
 };
 
 struct dpu_kms {
@@ -140,6 +141,10 @@ struct dpu_kms {
 	int cac_filter_blue;
 	u32 cac_preset_lut[DPU_CAC_LUT_WORDS * DPU_CAC_LUT_TABLES];
 	int cac_filter_applied[2];
+
+	/* debugfs cac_filter_lut: red's table, then blue's, used by the "custom" preset */
+	u32 cac_filter_lut[2 * DPU_CAC_LUT_WORDS];
+	bool cac_filter_lut_loaded;
 
 	/* reference count bandwidth requests, so we know when we can
 	 * release bandwidth.  Each atomic update increments, and frame-

@@ -328,11 +328,18 @@ static const char * const cac_filter_names[] = {
 	[DPU_CAC_FILTER_CATMULLROM] = "catmullrom",
 	[DPU_CAC_FILTER_LANCZOS2] = "lanczos2",
 	[DPU_CAC_FILTER_BSPLINE] = "bspline",
+	[DPU_CAC_FILTER_CUSTOM] = "custom",
 };
+
+/* The file's aux number is the channel: 0 = red, 1 = blue. */
+static int *cac_filter_of_file(struct dpu_kms *dpu_kms, const struct file *file)
+{
+	return debugfs_get_aux_num(file) ? &dpu_kms->cac_filter_blue : &dpu_kms->cac_filter_red;
+}
 
 static int cac_filter_show(struct seq_file *s, void *unused)
 {
-	int *filter = s->private;
+	int *filter = cac_filter_of_file(s->private, s->file);
 
 	seq_printf(s, "%s\n", cac_filter_names[READ_ONCE(*filter)]);
 	return 0;
@@ -341,7 +348,7 @@ static int cac_filter_show(struct seq_file *s, void *unused)
 /* Takes a filter name; the CRTC applies it on the next commit. */
 static ssize_t cac_filter_write(struct file *file, const char __user *user_buf, size_t count, loff_t *ppos)
 {
-	int *filter = ((struct seq_file *)file->private_data)->private;
+	struct dpu_kms *dpu_kms = ((struct seq_file *)file->private_data)->private;
 	char *name = memdup_user_nul(user_buf, count);
 	int ret;
 
@@ -351,11 +358,79 @@ static ssize_t cac_filter_write(struct file *file, const char __user *user_buf, 
 	kfree(name);
 	if (ret < 0)
 		return ret;
-	WRITE_ONCE(*filter, ret);
+	if (ret == DPU_CAC_FILTER_CUSTOM && !dpu_kms->cac_filter_lut_loaded)
+		return -EINVAL;
+	WRITE_ONCE(*cac_filter_of_file(dpu_kms, file), ret);
 	return count;
 }
 
 DEFINE_SHOW_STORE_ATTRIBUTE(cac_filter);
+
+/*
+ * Takes 33 hex words (one QSEED coefficient table for phases 0 to 0.5, for red and blue) or 66
+ * (red's table, then blue's). Channels whose cac_filter_red / cac_filter_blue is "custom" use it.
+ */
+static ssize_t cac_filter_lut_write(struct file *file, const char __user *user_buf, size_t count,
+				    loff_t *ppos)
+{
+	struct dpu_kms *dpu_kms = file->private_data;
+	u32 words[2 * DPU_CAC_LUT_WORDS];
+	char *text, *cursor, *token;
+	int n = 0;
+
+	text = memdup_user_nul(user_buf, count);
+	if (IS_ERR(text))
+		return PTR_ERR(text);
+
+	cursor = text;
+	while ((token = strsep(&cursor, " \t\n"))) {
+		if (!*token)
+			continue;
+		if (n == ARRAY_SIZE(words) || kstrtou32(token, 16, &words[n])) {
+			kfree(text);
+			return -EINVAL;
+		}
+		n++;
+	}
+	kfree(text);
+	if (n != DPU_CAC_LUT_WORDS && n != 2 * DPU_CAC_LUT_WORDS)
+		return -EINVAL;
+
+	/* One table means both channels use it. */
+	memcpy(dpu_kms->cac_filter_lut, words, DPU_CAC_LUT_WORDS * sizeof(u32));
+	memcpy(dpu_kms->cac_filter_lut + DPU_CAC_LUT_WORDS, words + n - DPU_CAC_LUT_WORDS,
+	       DPU_CAC_LUT_WORDS * sizeof(u32));
+	dpu_kms->cac_filter_lut_loaded = true;
+	/* Reapply the CAC setup on the next commit, even if userspace isn't updating the blob. */
+	dpu_kms->cac_update_pending = true;
+	return count;
+}
+
+static ssize_t cac_filter_lut_read(struct file *file, char __user *user_buf, size_t count,
+				   loff_t *ppos)
+{
+	struct dpu_kms *dpu_kms = file->private_data;
+	char text[2 * DPU_CAC_LUT_WORDS * 11 + 16];
+	size_t len = 0;
+	int i;
+
+	if (!dpu_kms->cac_filter_lut_loaded)
+		len = scnprintf(text, sizeof(text), "not loaded\n");
+	for (i = 0; dpu_kms->cac_filter_lut_loaded && i < 2 * DPU_CAC_LUT_WORDS; i++)
+		len += scnprintf(text + len, sizeof(text) - len, "%s0x%08x%c", i == 0 ? "red: " :
+				 i == DPU_CAC_LUT_WORDS ? "blue: " : "", dpu_kms->cac_filter_lut[i],
+				 (i + 1) % DPU_CAC_LUT_WORDS ? ' ' : '\n');
+
+	return simple_read_from_buffer(user_buf, count, ppos, text, len);
+}
+
+static const struct file_operations cac_filter_lut_fops = {
+	.owner = THIS_MODULE,
+	.open = simple_open,
+	.read = cac_filter_lut_read,
+	.write = cac_filter_lut_write,
+	.llseek = default_llseek,
+};
 
 static int dpu_kms_debugfs_init(struct msm_kms *kms, struct drm_minor *minor)
 {
@@ -376,10 +451,11 @@ static int dpu_kms_debugfs_init(struct msm_kms *kms, struct drm_minor *minor)
 	debugfs_create_u32("cac_enable", 0600, entry, &dpu_kms->cac_state_cached);
 	debugfs_create_file("cac_blob", 0600, entry, dpu_kms, &cac_blob_fops);
 	debugfs_create_bool("cac_update", 0600, entry, &dpu_kms->cac_update_pending);
-	debugfs_create_file("cac_filter_red", 0600, entry, &dpu_kms->cac_filter_red, &cac_filter_fops);
-	debugfs_create_file("cac_filter_blue", 0600, entry, &dpu_kms->cac_filter_blue, &cac_filter_fops);
+	debugfs_create_file_aux_num("cac_filter_red", 0600, entry, dpu_kms, 0, &cac_filter_fops);
+	debugfs_create_file_aux_num("cac_filter_blue", 0600, entry, dpu_kms, 1, &cac_filter_fops);
 	debugfs_create_bool("skip_cwb_right", 0600, entry, &dpu_kms->skip_cwb_right);
 	debugfs_create_bool("is_dsi_driven_writeback", 0600, entry, &dpu_kms->is_dsi_driven_writeback);
+	debugfs_create_file("cac_filter_lut", 0600, entry, dpu_kms, &cac_filter_lut_fops);
 
 	dpu_debugfs_danger_init(dpu_kms, entry);
 	dpu_debugfs_vbif_init(dpu_kms, entry);
