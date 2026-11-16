@@ -46,6 +46,7 @@
 
 static void dpu_crtc_disable_cac(struct msm_kms *kms);
 static void dpu_crtc_set_cac_blob(struct msm_kms *kms, struct cac_blob *cac);
+static bool dpu_crtc_cac_filters_changed(struct dpu_kms *dpu_kms);
 
 static struct dpu_kms *_dpu_crtc_get_kms(struct drm_crtc *crtc)
 {
@@ -1098,7 +1099,8 @@ static void dpu_crtc_atomic_begin(struct drm_crtc *crtc,
 
 	_dpu_crtc_setup_cp_blocks(crtc);
 
-	if (dpu_kms->cac_state_cur == CAC_ENABLED && dpu_kms->cac_update_pending) {
+	if (dpu_kms->cac_state_cur == CAC_ENABLED &&
+	    (dpu_kms->cac_update_pending || dpu_crtc_cac_filters_changed(dpu_kms))) {
 		dpu_kms->cac_update_wip = true;
 		/* Update CAC blob while already enabled (per-frame updates) */
 		dpu_crtc_set_cac_blob(priv->kms, dpu_kms->cac_blobs);
@@ -1867,11 +1869,183 @@ static inline void cac_blob_size_to_cfg(u32 csz, u32 *width, u32 *height)
 	*height = csz >> 16;
 }
 
-//qseed_filter can be set to the following values to change filter behavior
-#define FILTER_EDGE_DIRECTED_2D	0x0
-#define FILTER_CIRCULAR_2D		0x1
+// qseed_filter can be set to the following values to change filter behavior
 #define FILTER_SEPARABLE_1D		0x2
 #define FILTER_BILINEAR			0x3
+
+// Pack 4 filter taps for a separable 1D filter
+#define DPU_PACK_SEPARABLE_1D_FILTER_TAPS(tap_m1, tap_0, tap_p1, tap_p2) \
+	((((u32)(tap_m1) & 0xff) << 24) | (((u32)(tap_0) & 0xff) << 16) | \
+	 (((u32)(tap_p1) & 0xff) << 8) | ((u32)(tap_p2) & 0xff))
+
+/* Nearest: the center tap only; mirroring above 0.5 makes it round to the closest pixel. */
+static const u32 dpu_cac_lut_nearest[DPU_CAC_LUT_WORDS] = {
+	[0 ... DPU_CAC_LUT_WORDS - 1] = DPU_PACK_SEPARABLE_1D_FILTER_TAPS(0, 256, 0, 0),
+};
+
+/* Catmull-Rom: k(x) = 1.5|x|^3 - 2.5|x|^2 + 1 for |x| < 1, -0.5|x|^3 + 2.5|x|^2 - 4|x| + 2 for |x| < 2. */
+static const u32 dpu_cac_lut_catmullrom[DPU_CAC_LUT_WORDS] = {
+	DPU_PACK_SEPARABLE_1D_FILTER_TAPS(0,   256,   0,    0),	/* phase 0 */
+	DPU_PACK_SEPARABLE_1D_FILTER_TAPS(-2,  256,   2,    0),
+	DPU_PACK_SEPARABLE_1D_FILTER_TAPS(-4,  256,   4,    0),
+	DPU_PACK_SEPARABLE_1D_FILTER_TAPS(-5,  254,   7,    0),
+	DPU_PACK_SEPARABLE_1D_FILTER_TAPS(-7,  253,  10,    0),
+	DPU_PACK_SEPARABLE_1D_FILTER_TAPS(-8,  252,  13,   -1),
+	DPU_PACK_SEPARABLE_1D_FILTER_TAPS(-10, 251,  16,   -1),
+	DPU_PACK_SEPARABLE_1D_FILTER_TAPS(-11, 248,  20,   -1),
+	DPU_PACK_SEPARABLE_1D_FILTER_TAPS(-12, 247,  23,   -2),
+	DPU_PACK_SEPARABLE_1D_FILTER_TAPS(-13, 244,  27,   -2),
+	DPU_PACK_SEPARABLE_1D_FILTER_TAPS(-14, 242,  31,   -3),
+	DPU_PACK_SEPARABLE_1D_FILTER_TAPS(-15, 239,  35,   -3),
+	DPU_PACK_SEPARABLE_1D_FILTER_TAPS(-16, 237,  39,   -4),
+	DPU_PACK_SEPARABLE_1D_FILTER_TAPS(-17, 233,  44,   -4),
+	DPU_PACK_SEPARABLE_1D_FILTER_TAPS(-17, 230,  48,   -5),
+	DPU_PACK_SEPARABLE_1D_FILTER_TAPS(-18, 226,  53,   -5),
+	DPU_PACK_SEPARABLE_1D_FILTER_TAPS(-18, 222,  58,   -6),	/* phase 0.25 */
+	DPU_PACK_SEPARABLE_1D_FILTER_TAPS(-18, 218,  63,   -7),
+	DPU_PACK_SEPARABLE_1D_FILTER_TAPS(-19, 214,  68,   -7),
+	DPU_PACK_SEPARABLE_1D_FILTER_TAPS(-19, 210,  73,   -8),
+	DPU_PACK_SEPARABLE_1D_FILTER_TAPS(-19, 206,  78,   -9),
+	DPU_PACK_SEPARABLE_1D_FILTER_TAPS(-19, 200,  84,   -9),
+	DPU_PACK_SEPARABLE_1D_FILTER_TAPS(-19, 196,  89,  -10),
+	DPU_PACK_SEPARABLE_1D_FILTER_TAPS(-19, 192,  94,  -11),
+	DPU_PACK_SEPARABLE_1D_FILTER_TAPS(-19, 186, 100,  -11),
+	DPU_PACK_SEPARABLE_1D_FILTER_TAPS(-19, 182, 105,  -12),
+	DPU_PACK_SEPARABLE_1D_FILTER_TAPS(-18, 176, 111,  -13),
+	DPU_PACK_SEPARABLE_1D_FILTER_TAPS(-18, 171, 116,  -13),
+	DPU_PACK_SEPARABLE_1D_FILTER_TAPS(-18, 166, 122,  -14),
+	DPU_PACK_SEPARABLE_1D_FILTER_TAPS(-17, 160, 127,  -14),
+	DPU_PACK_SEPARABLE_1D_FILTER_TAPS(-17, 155, 133,  -15),
+	DPU_PACK_SEPARABLE_1D_FILTER_TAPS(-16, 149, 138,  -15),
+	DPU_PACK_SEPARABLE_1D_FILTER_TAPS(-16, 144, 144,  -16),	/* phase 0.5 */
+};
+
+/* Lanczos2: k(x) = sinc(x) sinc(x / 2) for |x| < 2, where sinc(x) = sin(pi x) / (pi x). */
+static const u32 dpu_cac_lut_lanczos2[DPU_CAC_LUT_WORDS] = {
+	DPU_PACK_SEPARABLE_1D_FILTER_TAPS(0,   256,   0,    0),	/* phase 0 */
+	DPU_PACK_SEPARABLE_1D_FILTER_TAPS(-2,  255,   3,    0),
+	DPU_PACK_SEPARABLE_1D_FILTER_TAPS(-5,  256,   5,    0),
+	DPU_PACK_SEPARABLE_1D_FILTER_TAPS(-7,  255,   8,    0),
+	DPU_PACK_SEPARABLE_1D_FILTER_TAPS(-9,  254,  11,    0),
+	DPU_PACK_SEPARABLE_1D_FILTER_TAPS(-11, 252,  15,    0),
+	DPU_PACK_SEPARABLE_1D_FILTER_TAPS(-12, 251,  18,   -1),
+	DPU_PACK_SEPARABLE_1D_FILTER_TAPS(-14, 249,  22,   -1),
+	DPU_PACK_SEPARABLE_1D_FILTER_TAPS(-15, 247,  25,   -1),
+	DPU_PACK_SEPARABLE_1D_FILTER_TAPS(-17, 245,  29,   -1),
+	DPU_PACK_SEPARABLE_1D_FILTER_TAPS(-18, 243,  33,   -2),
+	DPU_PACK_SEPARABLE_1D_FILTER_TAPS(-19, 240,  37,   -2),
+	DPU_PACK_SEPARABLE_1D_FILTER_TAPS(-19, 236,  42,   -3),
+	DPU_PACK_SEPARABLE_1D_FILTER_TAPS(-20, 233,  46,   -3),
+	DPU_PACK_SEPARABLE_1D_FILTER_TAPS(-21, 230,  50,   -3),
+	DPU_PACK_SEPARABLE_1D_FILTER_TAPS(-21, 226,  55,   -4),
+	DPU_PACK_SEPARABLE_1D_FILTER_TAPS(-21, 222,  60,   -5),	/* phase 0.25 */
+	DPU_PACK_SEPARABLE_1D_FILTER_TAPS(-22, 219,  64,   -5),
+	DPU_PACK_SEPARABLE_1D_FILTER_TAPS(-22, 215,  69,   -6),
+	DPU_PACK_SEPARABLE_1D_FILTER_TAPS(-22, 210,  74,   -6),
+	DPU_PACK_SEPARABLE_1D_FILTER_TAPS(-22, 206,  79,   -7),
+	DPU_PACK_SEPARABLE_1D_FILTER_TAPS(-22, 201,  85,   -8),
+	DPU_PACK_SEPARABLE_1D_FILTER_TAPS(-21, 195,  90,   -8),
+	DPU_PACK_SEPARABLE_1D_FILTER_TAPS(-21, 191,  95,   -9),
+	DPU_PACK_SEPARABLE_1D_FILTER_TAPS(-21, 187, 100,  -10),
+	DPU_PACK_SEPARABLE_1D_FILTER_TAPS(-20, 181, 106,  -11),
+	DPU_PACK_SEPARABLE_1D_FILTER_TAPS(-20, 176, 111,  -11),
+	DPU_PACK_SEPARABLE_1D_FILTER_TAPS(-19, 170, 117,  -12),
+	DPU_PACK_SEPARABLE_1D_FILTER_TAPS(-19, 166, 122,  -13),
+	DPU_PACK_SEPARABLE_1D_FILTER_TAPS(-18, 160, 128,  -14),
+	DPU_PACK_SEPARABLE_1D_FILTER_TAPS(-17, 155, 133,  -15),
+	DPU_PACK_SEPARABLE_1D_FILTER_TAPS(-17, 149, 139,  -15),
+	DPU_PACK_SEPARABLE_1D_FILTER_TAPS(-16, 144, 144,  -16),	/* phase 0.5 */
+};
+
+/* Cubic B-spline: k(x) = (3|x|^3 - 6|x|^2 + 4) / 6 for |x| < 1, (2 - |x|)^3 / 6 for |x| < 2. All taps positive. */
+static const u32 dpu_cac_lut_bspline[DPU_CAC_LUT_WORDS] = {
+	DPU_PACK_SEPARABLE_1D_FILTER_TAPS(43,  170,  43,    0),	/* phase 0 */
+	DPU_PACK_SEPARABLE_1D_FILTER_TAPS(41,  170,  45,    0),
+	DPU_PACK_SEPARABLE_1D_FILTER_TAPS(39,  170,  47,    0),
+	DPU_PACK_SEPARABLE_1D_FILTER_TAPS(37,  170,  49,    0),
+	DPU_PACK_SEPARABLE_1D_FILTER_TAPS(35,  170,  51,    0),
+	DPU_PACK_SEPARABLE_1D_FILTER_TAPS(33,  170,  53,    0),
+	DPU_PACK_SEPARABLE_1D_FILTER_TAPS(32,  168,  56,    0),
+	DPU_PACK_SEPARABLE_1D_FILTER_TAPS(30,  168,  58,    0),
+	DPU_PACK_SEPARABLE_1D_FILTER_TAPS(29,  167,  60,    0),
+	DPU_PACK_SEPARABLE_1D_FILTER_TAPS(27,  166,  63,    0),
+	DPU_PACK_SEPARABLE_1D_FILTER_TAPS(26,  165,  65,    0),
+	DPU_PACK_SEPARABLE_1D_FILTER_TAPS(24,  164,  68,    0),
+	DPU_PACK_SEPARABLE_1D_FILTER_TAPS(23,  163,  70,    0),
+	DPU_PACK_SEPARABLE_1D_FILTER_TAPS(22,  161,  73,    0),
+	DPU_PACK_SEPARABLE_1D_FILTER_TAPS(20,  161,  75,    0),
+	DPU_PACK_SEPARABLE_1D_FILTER_TAPS(19,  158,  78,    1),
+	DPU_PACK_SEPARABLE_1D_FILTER_TAPS(18,  156,  81,    1),	/* phase 0.25 */
+	DPU_PACK_SEPARABLE_1D_FILTER_TAPS(17,  155,  83,    1),
+	DPU_PACK_SEPARABLE_1D_FILTER_TAPS(16,  153,  86,    1),
+	DPU_PACK_SEPARABLE_1D_FILTER_TAPS(15,  151,  89,    1),
+	DPU_PACK_SEPARABLE_1D_FILTER_TAPS(14,  150,  91,    1),
+	DPU_PACK_SEPARABLE_1D_FILTER_TAPS(13,  147,  94,    2),
+	DPU_PACK_SEPARABLE_1D_FILTER_TAPS(12,  145,  97,    2),
+	DPU_PACK_SEPARABLE_1D_FILTER_TAPS(11,  144,  99,    2),
+	DPU_PACK_SEPARABLE_1D_FILTER_TAPS(10,  142, 102,    2),
+	DPU_PACK_SEPARABLE_1D_FILTER_TAPS(10,  138, 105,    3),
+	DPU_PACK_SEPARABLE_1D_FILTER_TAPS(9,   137, 107,    3),
+	DPU_PACK_SEPARABLE_1D_FILTER_TAPS(8,   135, 110,    3),
+	DPU_PACK_SEPARABLE_1D_FILTER_TAPS(8,   132, 112,    4),
+	DPU_PACK_SEPARABLE_1D_FILTER_TAPS(7,   130, 115,    4),
+	DPU_PACK_SEPARABLE_1D_FILTER_TAPS(6,   128, 118,    4),
+	DPU_PACK_SEPARABLE_1D_FILTER_TAPS(6,   125, 120,    5),
+	DPU_PACK_SEPARABLE_1D_FILTER_TAPS(5,   123, 123,    5),	/* phase 0.5 */
+};
+
+/* Bilinear uses the scaler's built-in mode, so it has no table. */
+static const u32 *dpu_cac_filter_luts[] = {
+	[DPU_CAC_FILTER_NEAREST] = dpu_cac_lut_nearest,
+	[DPU_CAC_FILTER_CATMULLROM] = dpu_cac_lut_catmullrom,
+	[DPU_CAC_FILTER_LANCZOS2] = dpu_cac_lut_lanczos2,
+	[DPU_CAC_FILTER_BSPLINE] = dpu_cac_lut_bspline,
+};
+
+static bool dpu_crtc_cac_filters_changed(struct dpu_kms *dpu_kms)
+{
+	return dpu_kms->cac_filter_applied[0] != READ_ONCE(dpu_kms->cac_filter_red) ||
+	       dpu_kms->cac_filter_applied[1] != READ_ONCE(dpu_kms->cac_filter_blue);
+}
+
+/* Red is the scaler's Y plane (loader table 0) and blue its UV plane (table 1). */
+static void dpu_crtc_setup_cac_filters(struct dpu_kms *dpu_kms, struct dpu_hw_scaler3_cfg *scaler3_cfg)
+{
+	/* Loader flag bits: swap, Y separable, UV separable. */
+	const u32 lut_swap = BIT(0), lut_y_sep = BIT(4), lut_uv_sep = BIT(5);
+	int red = READ_ONCE(dpu_kms->cac_filter_red);
+	int blue = READ_ONCE(dpu_kms->cac_filter_blue);
+
+	dpu_kms->cac_filter_applied[0] = red;
+	dpu_kms->cac_filter_applied[1] = blue;
+
+	scaler3_cfg->y_rgb_sep_lut_idx = 0;
+	scaler3_cfg->uv_sep_lut_idx = 1;
+	scaler3_cfg->sep_len = sizeof(dpu_kms->cac_preset_lut);
+	scaler3_cfg->lut_flag = 0;
+
+	if (red == DPU_CAC_FILTER_BILINEAR) {
+		scaler3_cfg->y_rgb_filter_cfg = FILTER_BILINEAR;
+	} else {
+		scaler3_cfg->y_rgb_filter_cfg = FILTER_SEPARABLE_1D;
+		scaler3_cfg->lut_flag |= lut_y_sep;
+		memcpy(dpu_kms->cac_preset_lut, dpu_cac_filter_luts[red], DPU_CAC_LUT_WORDS * sizeof(u32));
+	}
+
+	if (blue == DPU_CAC_FILTER_BILINEAR) {
+		scaler3_cfg->uv_filter_cfg = FILTER_BILINEAR;
+	} else {
+		scaler3_cfg->uv_filter_cfg = FILTER_SEPARABLE_1D;
+		scaler3_cfg->lut_flag |= lut_uv_sep;
+		memcpy(dpu_kms->cac_preset_lut + DPU_CAC_LUT_WORDS, dpu_cac_filter_luts[blue],
+		       DPU_CAC_LUT_WORDS * sizeof(u32));
+	}
+
+	/* With both channels bilinear, leave the coefficient LUT untouched, as before the presets existed. */
+	scaler3_cfg->sep_lut = scaler3_cfg->lut_flag ? dpu_kms->cac_preset_lut : NULL;
+	if (scaler3_cfg->lut_flag)
+		scaler3_cfg->lut_flag |= lut_swap;
+}
 
 /* setup all SSPP rectx and QSEED3 related register per user land requirement */
 static void dpu_crtc_set_cac_blob(struct msm_kms *kms,
@@ -1890,13 +2064,13 @@ static void dpu_crtc_set_cac_blob(struct msm_kms *kms,
 		.cac_enable = 1,
 		.preload_x = {0x7, 0x7, 0, 0},
 		.preload_y = {0x3, 0x3, 0, 0},
-		.y_rgb_filter_cfg = FILTER_BILINEAR,
-		.uv_filter_cfg = FILTER_BILINEAR,
 	};
 	/*qseed3 op_mode: BIT_WIDTH:bit14=1, CAC_MODE[bit2:1]=1, EN:0=1 to make dpu_hw_setup_scaler3() */
 	const struct msm_format *fmt_red = mdp_get_format(kms, DRM_FORMAT_PLANAR_CAC_R, 0);
 	const struct msm_format *fmt_blue = mdp_get_format(kms, DRM_FORMAT_PLANAR_CAC_B, 0);
 	const struct msm_format *fmt_green = mdp_get_format(kms, DRM_FORMAT_PLANAR_CAC_G, 0);
+
+	dpu_crtc_setup_cac_filters(dpu_kms, &scaler3_cfg);
 
 	/* all RECTx will read data for VIG 0~3 and DMA 2/3 */
 	for (i = 0; i < PLANAR_CAC_PIPES_WITH_FETCH; i++) {

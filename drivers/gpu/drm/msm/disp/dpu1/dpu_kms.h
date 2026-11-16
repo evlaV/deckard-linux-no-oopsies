@@ -74,6 +74,19 @@ enum cac_state {
 
 extern bool dpu_use_virtual_planes;
 
+/* QSEED3lite separable coefficient table: 33 phases (0 to 0.5), 10 tables per plane in the loader's layout. */
+#define DPU_CAC_LUT_WORDS 33
+#define DPU_CAC_LUT_TABLES 10
+
+/* CAC scaler filter presets, chosen per channel through the debugfs files cac_filter_red / cac_filter_blue. */
+enum dpu_cac_filter {
+	DPU_CAC_FILTER_BILINEAR,
+	DPU_CAC_FILTER_NEAREST,
+	DPU_CAC_FILTER_CATMULLROM,
+	DPU_CAC_FILTER_LANCZOS2,
+	DPU_CAC_FILTER_BSPLINE,
+};
+
 struct dpu_kms {
 	struct msm_kms base;
 	struct drm_device *dev;
@@ -121,6 +134,12 @@ struct dpu_kms {
 	bool skip_cwb_right;
 	bool is_dsi_driven_writeback;	/* trigger cwb via DSI commit */
 	struct list_head *wb_job_queue;
+
+	/* CAC filter presets: the selected ones, the tables loaded for red and blue, and which presets they are */
+	int cac_filter_red;
+	int cac_filter_blue;
+	u32 cac_preset_lut[DPU_CAC_LUT_WORDS * DPU_CAC_LUT_TABLES];
+	int cac_filter_applied[2];
 
 	/* reference count bandwidth requests, so we know when we can
 	 * release bandwidth.  Each atomic update increments, and frame-

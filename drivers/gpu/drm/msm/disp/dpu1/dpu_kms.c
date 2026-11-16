@@ -13,6 +13,9 @@
 #include <linux/dma-buf.h>
 #include <linux/of_irq.h>
 #include <linux/pm_opp.h>
+#include <linux/seq_file.h>
+#include <linux/slab.h>
+#include <linux/string.h>
 
 #include <drm/drm_crtc.h>
 #include <drm/drm_file.h>
@@ -317,6 +320,41 @@ static const struct file_operations cac_blob_fops = {
 	.llseek = default_llseek,
 };
 
+static const char * const cac_filter_names[] = {
+	[DPU_CAC_FILTER_BILINEAR] = "bilinear",
+	[DPU_CAC_FILTER_NEAREST] = "nearest",
+	[DPU_CAC_FILTER_CATMULLROM] = "catmullrom",
+	[DPU_CAC_FILTER_LANCZOS2] = "lanczos2",
+	[DPU_CAC_FILTER_BSPLINE] = "bspline",
+};
+
+static int cac_filter_show(struct seq_file *s, void *unused)
+{
+	int *filter = s->private;
+
+	seq_printf(s, "%s\n", cac_filter_names[READ_ONCE(*filter)]);
+	return 0;
+}
+
+/* Takes a filter name; the CRTC applies it on the next commit. */
+static ssize_t cac_filter_write(struct file *file, const char __user *user_buf, size_t count, loff_t *ppos)
+{
+	int *filter = ((struct seq_file *)file->private_data)->private;
+	char *name = memdup_user_nul(user_buf, count);
+	int ret;
+
+	if (IS_ERR(name))
+		return PTR_ERR(name);
+	ret = sysfs_match_string(cac_filter_names, name);
+	kfree(name);
+	if (ret < 0)
+		return ret;
+	WRITE_ONCE(*filter, ret);
+	return count;
+}
+
+DEFINE_SHOW_STORE_ATTRIBUTE(cac_filter);
+
 static int dpu_kms_debugfs_init(struct msm_kms *kms, struct drm_minor *minor)
 {
 	struct dpu_kms *dpu_kms = to_dpu_kms(kms);
@@ -336,6 +374,8 @@ static int dpu_kms_debugfs_init(struct msm_kms *kms, struct drm_minor *minor)
 	debugfs_create_u32("cac_enable", 0600, entry, &dpu_kms->cac_state_cached);
 	debugfs_create_file("cac_blob", 0600, entry, dpu_kms, &cac_blob_fops);
 	debugfs_create_bool("cac_update", 0600, entry, &dpu_kms->cac_update_pending);
+	debugfs_create_file("cac_filter_red", 0600, entry, &dpu_kms->cac_filter_red, &cac_filter_fops);
+	debugfs_create_file("cac_filter_blue", 0600, entry, &dpu_kms->cac_filter_blue, &cac_filter_fops);
 	debugfs_create_bool("skip_cwb_right", 0600, entry, &dpu_kms->skip_cwb_right);
 	debugfs_create_bool("is_dsi_driven_writeback", 0600, entry, &dpu_kms->is_dsi_driven_writeback);
 
@@ -1398,6 +1438,8 @@ static int dpu_kms_init(struct drm_device *ddev)
 	dpu_kms->is_dsi_driven_writeback = true;
 	dpu_kms->cac_update_pending = false;
 	dpu_kms->cac_update_wip = false;
+	dpu_kms->cac_filter_red = DPU_CAC_FILTER_LANCZOS2;
+	dpu_kms->cac_filter_blue = DPU_CAC_FILTER_LANCZOS2;
 
 	return 0;
 }
