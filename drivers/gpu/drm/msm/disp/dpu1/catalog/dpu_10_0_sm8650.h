@@ -137,6 +137,7 @@ static const struct dpu_lm_cfg sm8650_lm[] = {
 		.lm_pair = LM_1,
 		.pingpong = PINGPONG_0,
 		.dspp = DSPP_0,
+		.ds = DS_0,
 	}, {
 		.name = "lm_1", .id = LM_1,
 		.base = 0x45000, .len = 0x400,
@@ -145,6 +146,7 @@ static const struct dpu_lm_cfg sm8650_lm[] = {
 		.lm_pair = LM_0,
 		.pingpong = PINGPONG_1,
 		.dspp = DSPP_1,
+		.ds = DS_1,
 	}, {
 		.name = "lm_2", .id = LM_2,
 		.base = 0x46000, .len = 0x400,
@@ -153,6 +155,7 @@ static const struct dpu_lm_cfg sm8650_lm[] = {
 		.lm_pair = LM_3,
 		.pingpong = PINGPONG_2,
 		.dspp = DSPP_2,
+		.ds = DS_2,
 	}, {
 		.name = "lm_3", .id = LM_3,
 		.base = 0x47000, .len = 0x400,
@@ -161,6 +164,7 @@ static const struct dpu_lm_cfg sm8650_lm[] = {
 		.lm_pair = LM_2,
 		.pingpong = PINGPONG_3,
 		.dspp = DSPP_3,
+		.ds = DS_3,
 	}, {
 		.name = "lm_4", .id = LM_4,
 		.base = 0x48000, .len = 0x400,
@@ -195,6 +199,30 @@ static const struct dpu_dspp_cfg sm8650_dspp[] = {
 		.name = "dspp_3", .id = DSPP_3,
 		.base = 0x5a000, .len = 0x1800,
 		.sblk = &sdm845_dspp_sblk,
+	},
+};
+
+static const struct dpu_ds_cfg sm8650_ds[] = {
+	{
+		.name = "ds_0", .id = DS_0,
+		.base = 0x60000, .len = 0x800,
+		.scaler_blk = {.name = "scaler", .base = 0, .len = 0x800,
+			.version = SSPP_SCALER_VER(3, 3)},
+	}, {
+		.name = "ds_1", .id = DS_1,
+		.base = 0x61000, .len = 0x800,
+		.scaler_blk = {.name = "scaler", .base = 0, .len = 0x800,
+			.version = SSPP_SCALER_VER(3, 3)},
+	}, {
+		.name = "ds_2", .id = DS_2,
+		.base = 0x62000, .len = 0x800,
+		.scaler_blk = {.name = "scaler", .base = 0, .len = 0x800,
+			.version = SSPP_SCALER_VER(3, 3)},
+	}, {
+		.name = "ds_3", .id = DS_3,
+		.base = 0x63000, .len = 0x800,
+		.scaler_blk = {.name = "scaler", .base = 0, .len = 0x800,
+			.version = SSPP_SCALER_VER(3, 3)},
 	},
 };
 
@@ -442,6 +470,8 @@ const struct dpu_mdss_cfg dpu_sm8650_cfg = {
 	.mixer = sm8650_lm,
 	.dspp_count = ARRAY_SIZE(sm8650_dspp),
 	.dspp = sm8650_dspp,
+	.ds_count = ARRAY_SIZE(sm8650_ds),
+	.ds = sm8650_ds,
 	.pingpong_count = ARRAY_SIZE(sm8650_pp),
 	.pingpong = sm8650_pp,
 	.dsc_count = ARRAY_SIZE(sm8650_dsc),

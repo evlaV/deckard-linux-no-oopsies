@@ -322,7 +322,7 @@ void dpu_hw_setup_scaler3(struct dpu_hw_blk_reg_map *c,
 		op_mode |= (scaler3_cfg->uv_filter_cfg & 0x3) << 24;
 	}
 
-	if (format && MSM_FORMAT_IS_YUV(format)) {
+	if ((format && MSM_FORMAT_IS_YUV(format)) || scaler3_cfg->color_space_yuv) {
 		op_mode |= BIT(12);
 		op_mode |= (scaler3_cfg->uv_filter_cfg & 0x3) << 24;
 	}

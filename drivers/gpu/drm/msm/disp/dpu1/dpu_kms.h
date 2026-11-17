@@ -88,6 +88,20 @@ enum dpu_cac_filter {
 	DPU_CAC_FILTER_CUSTOM,	/* the table loaded through debugfs cac_filter_lut */
 };
 
+/**
+ * struct dpu_cac_sharpness - CAC sharpening, all 0 = off
+ * @r: red strength (0-255), through the detail enhancer of the CAC VIGs
+ * @g: green strength (0-255), through the dest scalers
+ * @overshoot_knee: edge step (8-bit) above which overshoot grows at @overshoot_slope; 0 = no limit
+ * @overshoot_slope: 0-16, in 1/16
+ */
+struct dpu_cac_sharpness {
+	u8 r;
+	u8 g;
+	u8 overshoot_knee;
+	u8 overshoot_slope;
+};
+
 struct dpu_kms {
 	struct msm_kms base;
 	struct drm_device *dev;
@@ -145,6 +159,10 @@ struct dpu_kms {
 	/* debugfs cac_filter_lut: red's table, then blue's, used by the "custom" preset */
 	u32 cac_filter_lut[2 * DPU_CAC_LUT_WORDS];
 	bool cac_filter_lut_loaded;
+
+	/* debugfs cac_sharpness_*, and the values last applied */
+	struct dpu_cac_sharpness cac_sharpness;
+	struct dpu_cac_sharpness cac_sharpness_applied;
 
 	/* reference count bandwidth requests, so we know when we can
 	 * release bandwidth.  Each atomic update increments, and frame-

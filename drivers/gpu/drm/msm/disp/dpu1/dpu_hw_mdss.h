@@ -158,6 +158,14 @@ enum dpu_dspp {
 	DSPP_MAX
 };
 
+enum dpu_ds {
+	DS_0 = 1,
+	DS_1,
+	DS_2,
+	DS_3,
+	DS_MAX
+};
+
 enum dpu_ctl {
 	CTL_0 = 1,
 	CTL_1,
@@ -363,6 +371,7 @@ struct dpu_mdss_color {
 #define DPU_DBG_MASK_DSC      (1 << 11)
 #define DPU_DBG_MASK_CDM      (1 << 12)
 #define DPU_DBG_MASK_CWB      (1 << 13)
+#define DPU_DBG_MASK_DS       (1 << 14)
 
 /**
  * struct dpu_hw_tear_check - Struct contains parameters to configure

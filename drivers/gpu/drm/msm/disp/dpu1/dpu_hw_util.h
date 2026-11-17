@@ -89,6 +89,7 @@ struct dpu_hw_scaler3_de_cfg {
  * @enable:        scaler enable
  * @cac_enable:        CAC enable
  * @dir_en:        direction detection block enable
+ * @color_space_yuv: process the data as YUV (COLOR_SPACE), whatever the format; the DE then acts on C0 only
  * @ init_phase_x: horizontal initial phase
  * @ phase_step_x: horizontal phase step
  * @ init_phase_y: vertical initial phase
@@ -125,6 +126,7 @@ struct dpu_hw_scaler3_cfg {
 	u32 enable;
 	u32 cac_enable;
 	u32 dir_en;
+	u32 color_space_yuv;
 	int32_t init_phase_x[DPU_MAX_PLANES];
 	int32_t phase_step_x[DPU_MAX_PLANES];
 	int32_t init_phase_y[DPU_MAX_PLANES];

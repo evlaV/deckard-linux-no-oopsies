@@ -25,6 +25,7 @@
 
 #include "dpu_kms.h"
 #include "dpu_hw_lm.h"
+#include "dpu_hw_ds.h"
 #include "dpu_hw_ctl.h"
 #include "dpu_hw_dspp.h"
 #include "dpu_crtc.h"
@@ -47,6 +48,8 @@
 static void dpu_crtc_disable_cac(struct msm_kms *kms);
 static void dpu_crtc_set_cac_blob(struct msm_kms *kms, struct cac_blob *cac);
 static bool dpu_crtc_cac_filters_changed(struct dpu_kms *dpu_kms);
+static void dpu_crtc_setup_cac_green_sharpening(struct dpu_kms *dpu_kms,
+						 struct dpu_crtc_state *cstate);
 
 static struct dpu_kms *_dpu_crtc_get_kms(struct drm_crtc *crtc)
 {
@@ -1108,6 +1111,8 @@ static void dpu_crtc_atomic_begin(struct drm_crtc *crtc,
 		dpu_kms->cac_update_pending = false;
 	}
 
+	dpu_crtc_setup_cac_green_sharpening(dpu_kms, cstate);
+
 	/*
 	 * PP_DONE irq is only used by command mode for now.
 	 * It is better to request pending before FLUSH and START trigger
@@ -2013,7 +2018,89 @@ static const u32 *dpu_crtc_cac_filter_lut(struct dpu_kms *dpu_kms, int filter, i
 static bool dpu_crtc_cac_filters_changed(struct dpu_kms *dpu_kms)
 {
 	return dpu_kms->cac_filter_applied[0] != READ_ONCE(dpu_kms->cac_filter_red) ||
-	       dpu_kms->cac_filter_applied[1] != READ_ONCE(dpu_kms->cac_filter_blue);
+	       dpu_kms->cac_filter_applied[1] != READ_ONCE(dpu_kms->cac_filter_blue) ||
+	       memcmp(&dpu_kms->cac_sharpness_applied, &dpu_kms->cac_sharpness, sizeof(dpu_kms->cac_sharpness));
+}
+
+/*
+ * Configure the unsharp mask in the detail enhancer (DE). Above an edge step of overshoot_knee the
+ * overshoot grows at overshoot_slope / 16, which keeps the halos of strong edges small.
+ */
+static void dpu_crtc_cac_sharpening_de_cfg(struct dpu_hw_scaler3_de_cfg *de, u8 strength,
+					   const struct dpu_cac_sharpness *sharpness)
+{
+	u8 knee = sharpness->overshoot_knee;
+	u8 slope = min_t(u8, sharpness->overshoot_slope, 16);
+
+	*de = (struct dpu_hw_scaler3_de_cfg) {
+		.enable = 1,
+		.sharpen_level1 = strength,
+		.sharpen_level2 = strength,
+		.limit = 5,
+		.prec_shift = 5,
+		.thr_dieout = 1000,
+	};
+
+	/*
+	 * Overshoot follows a curve of the edge step x, in three zones:
+	 *   zone 0: x < thr_low               adjust_a[0], adjust_b[0], adjust_c[0]
+	 *   zone 1: thr_low <= x < thr_high   adjust_a[1], adjust_b[1], adjust_c[1]
+	 *   zone 2: x >= thr_high             adjust_a[2], adjust_b[2], adjust_c[2]
+	 * Each zone is A x^2 / 4096 + B x / 16 + 2 C, so B 16 alone is linear.
+	 */
+	if (knee) {
+		/* Linear up to the knee, then slope / 16 as steep; zone 2 unused. */
+		de->thr_low = knee;
+		de->thr_high = 1023;
+		de->adjust_b[0] = 16;
+		de->adjust_b[1] = slope;
+		de->adjust_c[1] = (16 - slope) * knee / 32;	/* keeps the curve continuous at the knee */
+	} else {
+		/* Linear: every 8-bit step falls in zone 1; zones 0 and 2 keep their reset values. */
+		de->thr_high = 500;
+		de->adjust_a[0] = 102;
+		de->adjust_a[2] = 264;
+		de->adjust_b[1] = 16;
+		de->adjust_b[2] = 32;
+	}
+}
+
+/* Sharpen green with the dest scalers at 1:1; YUV mode limits their DE to green. */
+static void dpu_crtc_setup_cac_green_sharpening(struct dpu_kms *dpu_kms, struct dpu_crtc_state *cstate)
+{
+	const struct dpu_cac_sharpness *sharpness = &dpu_kms->cac_sharpness_applied;
+	struct dpu_hw_scaler3_cfg cfg = {
+		.enable = 1,
+		.color_space_yuv = 1,
+		.y_rgb_filter_cfg = FILTER_BILINEAR,
+		.uv_filter_cfg = FILTER_BILINEAR,
+		.phase_step_x = {BIT(21), BIT(21)},
+		.phase_step_y = {BIT(21), BIT(21)},
+		.preload_x = {0x7, 0x7},
+		.preload_y = {0x3, 0x3},
+	};
+	struct dpu_hw_ds *ds;
+	u32 i;
+
+	if (dpu_kms->cac_state_cur == CAC_ENABLED && sharpness->g)
+		dpu_crtc_cac_sharpening_de_cfg(&cfg.de, sharpness->g, sharpness);
+
+	for (i = 0; i < cstate->num_mixers; i++) {
+		ds = dpu_rm_get_ds(&dpu_kms->rm, cstate->mixers[i].hw_lm->cap->ds);
+		if (!ds)
+			continue;
+
+		if (!cfg.de.enable) {
+			ds->ops.disable(ds);
+			continue;
+		}
+
+		cfg.src_width[0] = cfg.src_width[1] = drm_rect_width(&cstate->lm_bounds[i]);
+		cfg.src_height[0] = cfg.src_height[1] = drm_rect_height(&cstate->lm_bounds[i]);
+		cfg.dst_width[0] = cfg.dst_width[1] = cfg.src_width[0];
+		cfg.dst_height[0] = cfg.dst_height[1] = cfg.src_height[0];
+		ds->ops.setup_scaler(ds, &cfg);
+	}
 }
 
 /* Red is the scaler's Y plane (loader table 0) and blue its UV plane (table 1). */
@@ -2056,10 +2143,34 @@ static void dpu_crtc_setup_cac_filters(struct dpu_kms *dpu_kms, struct dpu_hw_sc
 		scaler3_cfg->lut_flag |= lut_swap;
 }
 
+/* Clip red to blue's window while red is sharpened; otherwise the detail enhancer offsets blue. */
+static void dpu_crtc_cac_match_windows(struct cac_blob *cac)
+{
+	u32 red_x = cac->dst_r.xy & 0xffff, red_w = cac->dst_r.size & 0xffff;
+	u32 blue_x = cac->dst_b.xy & 0xffff, blue_w = cac->dst_b.size & 0xffff;
+	u32 src_x = cac->src_r.xy & 0xffff, src_end = src_x + (cac->src_r.size & 0xffff);
+	u64 src_start;
+
+	if (blue_x < red_x || blue_x + blue_w > red_x + red_w)
+		return;
+
+	/* red's source start in U.21, advanced by the output pixels before blue's start */
+	src_start = ((u64)src_x << 21) + cac->phase_init_r_h +
+		    (((u64)(blue_x - red_x) * cac->phase_step_r_h + 512) >> 10);
+	src_x = src_start >> 21;
+	cac->phase_init_r_h = src_start & 0x1fffff;
+
+	cac->src_r.xy = (cac->src_r.xy & 0xffff0000) | src_x;
+	cac->src_r.size = (cac->src_r.size & 0xffff0000) | (src_end - src_x);
+	cac->dst_r.xy = (cac->dst_r.xy & 0xffff0000) | blue_x;
+	cac->dst_r.size = (cac->dst_r.size & 0xffff0000) | blue_w;
+}
+
 /* setup all SSPP rectx and QSEED3 related register per user land requirement */
 static void dpu_crtc_set_cac_blob(struct msm_kms *kms,
 				  struct cac_blob *cac)
 {
+	struct cac_blob matched[PLANAR_CAC_SSPP_VIG];
 	int i, j, rect1;
 	struct dpu_sw_pipe *cac_pipe;
 	struct dpu_hw_sspp *sspp;
@@ -2078,8 +2189,20 @@ static void dpu_crtc_set_cac_blob(struct msm_kms *kms,
 	const struct msm_format *fmt_red = mdp_get_format(kms, DRM_FORMAT_PLANAR_CAC_R, 0);
 	const struct msm_format *fmt_blue = mdp_get_format(kms, DRM_FORMAT_PLANAR_CAC_B, 0);
 	const struct msm_format *fmt_green = mdp_get_format(kms, DRM_FORMAT_PLANAR_CAC_G, 0);
+	const struct dpu_cac_sharpness *sharpness = &dpu_kms->cac_sharpness_applied;
 
 	dpu_crtc_setup_cac_filters(dpu_kms, &scaler3_cfg);
+	dpu_kms->cac_sharpness_applied = dpu_kms->cac_sharpness;
+	if (sharpness->r)
+		dpu_crtc_cac_sharpening_de_cfg(&scaler3_cfg.de, sharpness->r, sharpness);
+
+	/* On a copy, so debugfs reads back what userspace wrote. */
+	if (sharpness->r) {
+		memcpy(matched, cac, sizeof(matched));
+		for (i = 0; i < PLANAR_CAC_SSPP_VIG; i++)
+			dpu_crtc_cac_match_windows(&matched[i]);
+		cac = matched;
+	}
 
 	/* all RECTx will read data for VIG 0~3 and DMA 2/3 */
 	for (i = 0; i < PLANAR_CAC_PIPES_WITH_FETCH; i++) {

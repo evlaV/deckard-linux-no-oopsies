@@ -437,6 +437,7 @@ struct dpu_sspp_cfg {
  * @features           bit mask identifying sub-blocks/features
  * @sblk:              LM Sub-blocks information
  * @pingpong:          ID of connected PingPong, PINGPONG_NONE if unsupported
+ * @ds:                ID of the dest scaler after this LM, 0 if none
  * @lm_pair:           ID of LM that can be controlled by same CTL
  */
 struct dpu_lm_cfg {
@@ -445,6 +446,7 @@ struct dpu_lm_cfg {
 	const struct dpu_lm_sub_blks *sblk;
 	u32 pingpong;
 	u32 dspp;
+	u32 ds;
 	unsigned long lm_pair;
 };
 
@@ -458,6 +460,17 @@ struct dpu_lm_cfg {
 struct dpu_dspp_cfg  {
 	DPU_HW_BLK_INFO;
 	const struct dpu_dspp_sub_blks *sblk;
+};
+
+/**
+ * struct dpu_ds_cfg - information of dest scaler blocks
+ * @id                 enum identifying this block
+ * @base               register offset of this block
+ * @scaler_blk:        QSEED scaler information
+ */
+struct dpu_ds_cfg {
+	DPU_HW_BLK_INFO;
+	struct dpu_scaler_blk scaler_blk;
 };
 
 /**
@@ -752,6 +765,9 @@ struct dpu_mdss_cfg {
 
 	u32 dspp_count;
 	const struct dpu_dspp_cfg *dspp;
+
+	u32 ds_count;
+	const struct dpu_ds_cfg *ds;
 
 	u32 cwb_count;
 	const struct dpu_cwb_cfg *cwb;

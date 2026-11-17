@@ -15,6 +15,7 @@
 #include "dpu_hw_intf.h"
 #include "dpu_hw_wb.h"
 #include "dpu_hw_dspp.h"
+#include "dpu_hw_ds.h"
 #include "dpu_hw_merge3d.h"
 #include "dpu_hw_dsc.h"
 #include "dpu_encoder.h"
@@ -162,6 +163,19 @@ int dpu_rm_init(struct drm_device *dev,
 			goto fail;
 		}
 		rm->dspp_blks[dspp->id - DSPP_0] = &hw->base;
+	}
+
+	for (i = 0; i < cat->ds_count; i++) {
+		struct dpu_hw_ds *hw;
+		const struct dpu_ds_cfg *ds = &cat->ds[i];
+
+		hw = dpu_hw_ds_init(dev, ds, mmio);
+		if (IS_ERR(hw)) {
+			rc = PTR_ERR(hw);
+			DPU_ERROR("failed ds object creation: err %d\n", rc);
+			goto fail;
+		}
+		rm->hw_ds[ds->id - DS_0] = hw;
 	}
 
 	for (i = 0; i < cat->dsc_count; i++) {

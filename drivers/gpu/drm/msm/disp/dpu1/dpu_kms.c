@@ -456,6 +456,10 @@ static int dpu_kms_debugfs_init(struct msm_kms *kms, struct drm_minor *minor)
 	debugfs_create_bool("skip_cwb_right", 0600, entry, &dpu_kms->skip_cwb_right);
 	debugfs_create_bool("is_dsi_driven_writeback", 0600, entry, &dpu_kms->is_dsi_driven_writeback);
 	debugfs_create_file("cac_filter_lut", 0600, entry, dpu_kms, &cac_filter_lut_fops);
+	debugfs_create_u8("cac_sharpness_r", 0600, entry, &dpu_kms->cac_sharpness.r);
+	debugfs_create_u8("cac_sharpness_g", 0600, entry, &dpu_kms->cac_sharpness.g);
+	debugfs_create_u8("cac_sharpness_overshoot_knee", 0600, entry, &dpu_kms->cac_sharpness.overshoot_knee);
+	debugfs_create_u8("cac_sharpness_overshoot_slope", 0600, entry, &dpu_kms->cac_sharpness.overshoot_slope);
 
 	dpu_debugfs_danger_init(dpu_kms, entry);
 	dpu_debugfs_vbif_init(dpu_kms, entry);

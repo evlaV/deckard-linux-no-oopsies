@@ -23,6 +23,7 @@ struct dpu_global_state;
  * @hw_cwb: array of cwb hardware resources
  * @dspp_blks: array of dspp hardware resources
  * @hw_sspp: array of sspp hardware resources
+ * @hw_ds: array of dest scaler hardware resources
  * @cdm_blk: cdm hardware resource
  * @has_legacy_ctls: DPU uses pre-ACTIVE CTL blocks.
  */
@@ -37,6 +38,7 @@ struct dpu_rm {
 	struct dpu_hw_blk *merge_3d_blks[MERGE_3D_MAX - MERGE_3D_0];
 	struct dpu_hw_blk *dsc_blks[DSC_MAX - DSC_0];
 	struct dpu_hw_sspp *hw_sspp[SSPP_MAX - SSPP_NONE];
+	struct dpu_hw_ds *hw_ds[DS_MAX - DS_0];
 	struct dpu_hw_blk *cdm_blk;
 	bool has_legacy_ctls;
 };
@@ -139,6 +141,17 @@ static inline struct dpu_hw_wb *dpu_rm_get_wb(struct dpu_rm *rm, enum dpu_wb wb_
 static inline struct dpu_hw_sspp *dpu_rm_get_sspp(struct dpu_rm *rm, enum dpu_sspp sspp_idx)
 {
 	return rm->hw_sspp[sspp_idx - SSPP_NONE];
+}
+
+/**
+ * dpu_rm_get_ds - Return a struct dpu_hw_ds instance given its index.
+ * @rm: DPU Resource Manager handle
+ * @ds_idx: index of the dest scaler, 0 for none
+ * Return: the dest scaler, or NULL if there is none
+ */
+static inline struct dpu_hw_ds *dpu_rm_get_ds(struct dpu_rm *rm, enum dpu_ds ds_idx)
+{
+	return ds_idx >= DS_0 && ds_idx < DS_MAX ? rm->hw_ds[ds_idx - DS_0] : NULL;
 }
 
 #endif /* __DPU_RM_H__ */
