@@ -5622,7 +5622,7 @@ int ath12k_mac_op_get_txpower(struct ieee80211_hw *hw,
 					 ar->last_tx_power_update))
 		goto send_tx_power;
 
-	params.pdev_id = ar->pdev->pdev_id;
+	params.pdev_id = ath12k_mac_get_target_pdev_id(ar);
 	params.vdev_id = arvif->vdev_id;
 	params.stats_id = WMI_REQUEST_PDEV_STAT;
 	ret = ath12k_mac_get_fw_stats(ar, &params);
