@@ -1475,13 +1475,31 @@ out:
 
 static void ufshcd_clock_scaling_unprepare(struct ufs_hba *hba, int err)
 {
+	u32 gear_rx;
+	int active;
+	u32 wb_rx;
+
 	blk_mq_unquiesce_tagset(&hba->host->tag_set);
 	up_write(&hba->clk_scaling_lock);
 	mutex_unlock(&hba->wb_mutex);
 
-	/* Enable Write Booster if current gear requires it else disable it */
-	if (ufshcd_enable_wb_if_scaling_up(hba) && !err)
-		ufshcd_wb_toggle(hba, hba->pwr_info.gear_rx >= hba->clk_scaling.wb_gear);
+	/*
+	 * Enable Write Booster if current gear requires it else disable it,
+	 * but only do it if we are sure it is active and runtime PM is enabled
+	 * (if not get_active will get us -EINVAL)
+	 */
+	if (ufshcd_enable_wb_if_scaling_up(hba) && !err) {
+		active = ufshcd_rpm_get_if_active(hba);
+
+		gear_rx = hba->pwr_info.gear_rx;
+		wb_rx = hba->clk_scaling.wb_gear;
+
+		if (active > 0 || active == -EINVAL)
+			ufshcd_wb_toggle(hba, gear_rx >= wb_rx);
+
+		if (active > 0)
+			ufshcd_rpm_put(hba);
+	}
 
 	ufshcd_release(hba);
 }
