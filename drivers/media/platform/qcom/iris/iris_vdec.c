@@ -462,6 +462,7 @@ bool iris_vdec_wait_first_ipsc(struct iris_inst *inst)
 	bool waited = false;
 
 	while (inst->state == IRIS_INST_INPUT_STREAMING &&
+	       !inst->fw_min_count &&
 	       !(inst->sub_state & IRIS_INST_SUB_FIRST_IPSC) &&
 	       iris_vdec_input_with_fw(inst) && time_before(jiffies, timeout)) {
 		waited = true;
