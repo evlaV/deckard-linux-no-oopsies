@@ -273,7 +273,7 @@ int iris_vdec_s_fmt(struct iris_inst *inst, struct v4l2_format *f)
 
 	q = v4l2_m2m_get_vq(inst->m2m_ctx, f->type);
 
-	if (vb2_is_busy(q))
+	if (V4L2_TYPE_IS_CAPTURE(f->type) ? vb2_is_streaming(q) : vb2_is_busy(q))
 		return -EBUSY;
 
 	/* Width and height are optional, so fall back to a valid placeholder
