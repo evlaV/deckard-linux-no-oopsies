@@ -16,8 +16,14 @@ variables:
   FF_DISABLE_UMASK_FOR_DOCKER_EXECUTOR: "true"
   # Selects `deckard/linux-${KVER}-deckard` (and friends) within holo
   KVER: "72"
-  # The only branch that gets deployed to `linux-valve-publicly-released-branches`
-  DEPLOY_BRANCH: "sm8650-7.2"
+
+# The only branches that get deployed to `linux-valve-publicly-released-branches`
+.public-branches:
+  parallel:
+    matrix:
+      - DEPLOY_BRANCH:
+          - "sm8650-7.2"
+          - "sm8650-7.2-rel-0.5.x"
 
 .kernel-base:
   stage: build
@@ -118,6 +124,7 @@ deploy-public:
     PUBLIC_REPO: "gitlab.steamos.cloud/deckard/deckardos/linux-valve-publicly-released-branches.git"
   dependencies: []
   resource_group: deploy-public-${CI_COMMIT_BRANCH}
+  extends: .public-branches
   rules:
     - if: $CI_PROJECT_PATH == "deckard/deckardos/linux-valve" && $CI_COMMIT_BRANCH == $DEPLOY_BRANCH
   script:
