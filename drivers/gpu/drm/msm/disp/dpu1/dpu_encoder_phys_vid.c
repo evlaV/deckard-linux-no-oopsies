@@ -346,6 +346,8 @@ static void dpu_encoder_phys_vid_hack_timing(
 	struct dpu_hw_intf_cfg intf_cfg = { 0 };
 
 	/* we can change cached_mode to hack VRR */
+	phys_enc->mode_pending_old_vtotal = phys_enc->cached_mode.vtotal;
+	drm_mode_copy(&phys_enc->cached_mode, hack_mode);
 	drm_mode_init(&mode, hack_mode);
 
 	if (!phys_enc->hw_ctl->ops.setup_intf_cfg) {
@@ -416,6 +418,79 @@ static void dpu_encoder_phys_vid_hack_timing(
 
 extern void dpu_encoder_kickoff_hack(void);
 extern void dsi_mgr_bridge_hacktiming(struct drm_display_mode *mode);
+
+static void dpu_encoder_phys_vid_seamless_arm(struct dpu_encoder_phys *phys_enc)
+{
+	if (!phys_enc->mode_pending)
+		return;
+
+	phys_enc->hw_ctl->ops.update_pending_flush_intf(phys_enc->hw_ctl,
+							phys_enc->hw_intf->idx);
+	phys_enc->mode_pending_armed = true;
+}
+
+#define DPU_SEAMLESS_LINE_MARGIN	64
+
+static void dpu_encoder_phys_vid_seamless_complete(struct dpu_encoder_phys *phys_enc)
+{
+	struct drm_display_mode *mode = phys_enc->mode_pending;
+	struct dpu_hw_intf *intf = phys_enc->hw_intf;
+	u32 old_vtotal = phys_enc->mode_pending_old_vtotal;
+	u32 margin = DPU_SEAMLESS_LINE_MARGIN;
+	u32 end, line = 0, first = 0, sleep_us, budget_us;
+	unsigned long flags;
+	bool written = false;
+	int tries;
+
+	if (!mode || !phys_enc->mode_pending_armed)
+		return;
+
+	phys_enc->mode_pending_armed = false;
+	phys_enc->mode_pending = NULL;
+
+	if (!dpu_encoder_phys_vid_is_master(phys_enc))
+		return;
+
+	end = min_t(u32, mode->vtotal, old_vtotal);
+	if (!intf->ops.get_line_count || !mode->clock || 2 * margin >= end) {
+		/* Can't place the write in the frame; write it right away */
+		dsi_mgr_bridge_hacktiming(mode);
+		return;
+	}
+	end -= margin;
+
+	sleep_us = DIV_ROUND_UP((u64)margin * mode->htotal * 1000, mode->clock);
+	budget_us = DIV_ROUND_UP((u64)2 * max_t(u32, mode->vtotal, old_vtotal) *
+				 mode->htotal * 1000, mode->clock);
+
+	for (tries = 0; tries <= budget_us / sleep_us; tries++) {
+		local_irq_save(flags);
+		line = intf->ops.get_line_count(intf);
+		if (line >= margin && line < end) {
+			dsi_mgr_bridge_hacktiming(mode);
+			written = true;
+		}
+		local_irq_restore(flags);
+
+		if (!tries)
+			first = line;
+		if (written)
+			break;
+
+		fsleep(line < margin ? DIV_ROUND_UP(sleep_us * (margin - line), margin) : sleep_us);
+	}
+
+	if (!written) {
+		DPU_ERROR_VIDENC(phys_enc, "seamless DSI timing write to %s timed out, line %u\n",
+				 mode->name, line);
+		dsi_mgr_bridge_hacktiming(mode);
+		return;
+	}
+
+	DPU_DEBUG_VIDENC(phys_enc, "seamless DSI timing write to %s: first line %u, write line %u, vtotal %u -> %u\n",
+			 mode->name, first, line, old_vtotal, mode->vtotal);
+}
+
 static void dpu_encoder_phys_vid_vblank_irq(void *arg)
 {
 	struct dpu_encoder_phys *phys_enc = arg;
@@ -431,6 +506,7 @@ static void dpu_encoder_phys_vid_vblank_irq(void *arg)
 
 	atomic_read(&phys_enc->pending_kickoff_cnt);
 
+#if 0
 	/* Commit refresh rate switching */
 	if (dpu_encoder_phys_vid_is_master(phys_enc) && phys_enc->mode_pending) {
 		/* No reg flush for dsi controller reg, so update timing here */
@@ -442,6 +518,7 @@ static void dpu_encoder_phys_vid_vblank_irq(void *arg)
 		 * later than backight tuning. */
 		phys_enc->mode_pending = NULL;
 	}
+#endif
 
 	/*
 	 * only decrement the pending flush count if we've actually flushed
@@ -554,6 +631,9 @@ static void dpu_encoder_phys_vid_enable(struct dpu_encoder_phys *phys_enc)
 
 	DPU_DEBUG_VIDENC(phys_enc, "\n");
 
+	phys_enc->mode_pending = NULL;
+	phys_enc->mode_pending_armed = false;
+
 	if (WARN_ON(!phys_enc->hw_intf->ops.enable_timing))
 		return;
 
@@ -653,6 +733,8 @@ static int dpu_encoder_phys_vid_wait_for_commit_done(
 		return -ETIMEDOUT;
 	}
 
+	dpu_encoder_phys_vid_seamless_complete(phys_enc);
+
 	return 0;
 }
 
@@ -664,6 +746,8 @@ static void dpu_encoder_phys_vid_prepare_for_kickoff(
 	struct drm_encoder *drm_enc;
 
 	drm_enc = phys_enc->parent;
+
+	dpu_encoder_phys_vid_seamless_arm(phys_enc);
 
 	ctl = phys_enc->hw_ctl;
 	if (!ctl->ops.wait_reset_status)
