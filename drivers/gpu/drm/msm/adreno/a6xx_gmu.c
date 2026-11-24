@@ -3,6 +3,7 @@
 
 #include <linux/bitfield.h>
 #include <linux/clk.h>
+#include <linux/delay.h>
 #include <linux/firmware/qcom/qcom_scm.h>
 #include <linux/interconnect.h>
 #include <linux/of_platform.h>
@@ -2013,6 +2014,70 @@ static void a6xx_gmu_floor_vote_init(struct a6xx_gmu *gmu)
 	gmu->floor_perf_index = perf_index;
 	gmu->floor_bw_index = bw_index;
 	gmu->floor_indices_valid = true;
+}
+
+void a6xx_gmu_panic_handler(struct adreno_gpu *adreno_gpu)
+{
+	struct a6xx_gpu *a6xx_gpu = to_a6xx_gpu(adreno_gpu);
+	struct a6xx_gmu *gmu = &a6xx_gpu->gmu;
+	struct msm_gpu *gpu = &adreno_gpu->base;
+	u32 ack = BIT(a6xx_gmu_oob_bits[GMU_OOB_GPU_SET].ack_new);
+	unsigned int us, i;
+	bool idle = false;
+	int ret, oob;
+	u32 val;
+
+	if (gmu->legacy || !gmu->floor_indices_valid || !gmu->initialized ||
+		gmu->hung)
+		return;
+
+	if (!pm_runtime_active(gmu->dev) ||
+	    gmu->current_perf_index <= gmu->floor_perf_index)
+		return;
+
+	/* Force GX on (OOB GPU_SET); never cleared, we are about to reset */
+	gmu_write(gmu, REG_A6XX_GMU_HOST2GMU_INTR_SET,
+		  BIT(a6xx_gmu_oob_bits[GMU_OOB_GPU_SET].set_new));
+
+	oob = gmu_poll_timeout_atomic(gmu, REG_A6XX_GMU_GMU2HOST_INTR_INFO,
+			val, val & ack, 10, 100 * USEC_PER_MSEC);
+
+	gmu_write(gmu, REG_A6XX_GMU_GMU2HOST_INTR_CLR, ack);
+
+	ret = a6xx_hfi_set_freq_atomic(gmu, gmu->floor_perf_index,
+			gmu->floor_bw_index, 200 * USEC_PER_MSEC);
+	if (ret) {
+		dev_err(gmu->dev, "panic: HFI error: %d, GPU left at perf %u\n",
+			ret, gmu->current_perf_index);
+		return;
+	}
+
+	gmu->current_perf_index = gmu->floor_perf_index;
+	gmu->freq = gmu->gpu_freqs[gmu->floor_perf_index];
+
+	/*
+	 * Memory-only check (GPU registers may be behind a collapsed GX), and
+	 * bounded by udelay() since jiffies may not advance here.
+	 */
+	for (us = 0; us < USEC_PER_SEC; us += 100) {
+		idle = true;
+		for (i = 0; i < gpu->nr_rings; i++) {
+			struct msm_ringbuffer *ring = gpu->rb[i];
+
+			if (ring && (s32)(ring->fctx->last_fence -
+					  ring->memptrs->fence) > 0)
+				idle = false;
+		}
+		if (idle)
+			break;
+		udelay(100);
+	}
+
+	/* Give the GMU/AOP a moment to settle after the last work retired */
+	mdelay(20);
+
+	dev_info(gmu->dev, "panic: GPU at lowest OPP (oob %d, ack %d), %s after %u us\n",
+		 oob, ret, idle ? "idle" : "still busy", us);
 }
 
 static int a6xx_gmu_pwrlevels_probe(struct a6xx_gmu *gmu)

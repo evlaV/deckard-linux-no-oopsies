@@ -240,6 +240,8 @@ int a6xx_hfi_start(struct a6xx_gmu *gmu, int boot_state);
 void a6xx_hfi_stop(struct a6xx_gmu *gmu);
 int a6xx_hfi_send_prep_slumber(struct a6xx_gmu *gmu);
 int a6xx_hfi_set_freq(struct a6xx_gmu *gmu, u32 perf_index, u32 bw_index);
+int a6xx_hfi_set_freq_atomic(struct a6xx_gmu *gmu, u32 perf_index, u32 bw_index,
+			     unsigned int timeout_us);
 
 bool a6xx_gmu_gx_is_on(struct adreno_gpu *adreno_gpu);
 bool a7xx_gmu_gx_is_on(struct adreno_gpu *adreno_gpu);

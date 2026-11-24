@@ -940,6 +940,60 @@ int a6xx_hfi_set_freq(struct a6xx_gmu *gmu, u32 freq_index, u32 bw_index)
 		sizeof(msg), NULL, 0);
 }
 
+int a6xx_hfi_set_freq_atomic(struct a6xx_gmu *gmu, u32 freq_index, u32 bw_index,
+			     unsigned int timeout_us)
+{
+	struct a6xx_hfi_gx_bw_perf_vote_cmd msg = { 0 };
+	struct a6xx_hfi_queue *queue = &gmu->queues[HFI_COMMAND_QUEUE];
+	struct a6xx_hfi_queue *resp_queue = &gmu->queues[HFI_RESPONSE_QUEUE];
+	unsigned int waited = 0;
+	u32 seqnum, val;
+	int ret;
+
+	seqnum = atomic_inc_return(&queue->seqnum) % 0xfff;
+
+	msg.header = (seqnum << 20) | (HFI_MSG_CMD << 16) |
+		((sizeof(msg) >> 2) << 8) | HFI_H2F_MSG_GX_BW_PERF_VOTE;
+	msg.ack_type = 1; /* blocking */
+	msg.freq = freq_index;
+	msg.bw = bw_index;
+
+	/* Only look at responses that arrive after our command */
+	gmu_write(gmu, REG_A6XX_GMU_GMU2HOST_INTR_CLR,
+		  A6XX_GMU_GMU2HOST_INTR_INFO_MSGQ);
+
+	ret = a6xx_hfi_queue_write(gmu, queue, (u32 *) &msg, sizeof(msg) >> 2);
+	if (ret)
+		return ret;
+
+	while (waited < timeout_us) {
+		struct a6xx_hfi_msg_response resp;
+
+		ret = gmu_poll_timeout_atomic(gmu, REG_A6XX_GMU_GMU2HOST_INTR_INFO,
+			val, val & A6XX_GMU_GMU2HOST_INTR_INFO_MSGQ, 10,
+			timeout_us - waited);
+		if (ret)
+			return -ETIMEDOUT;
+
+		gmu_write(gmu, REG_A6XX_GMU_GMU2HOST_INTR_CLR,
+			A6XX_GMU_GMU2HOST_INTR_INFO_MSGQ);
+
+		while (a6xx_hfi_queue_read(gmu, resp_queue, (u32 *) &resp,
+				sizeof(resp) >> 2) > 0) {
+			if (HFI_HEADER_ID(resp.header) == HFI_F2H_MSG_ERROR)
+				continue;
+			if (HFI_HEADER_SEQNUM(resp.ret_header) != seqnum)
+				continue;
+			return resp.error ? -EINVAL : 0;
+		}
+
+		udelay(10);
+		waited += 10;
+	}
+
+	return -ETIMEDOUT;
+}
+
 int a6xx_hfi_send_prep_slumber(struct a6xx_gmu *gmu)
 {
 	struct a6xx_hfi_prep_slumber_cmd msg = { 0 };

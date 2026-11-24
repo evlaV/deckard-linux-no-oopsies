@@ -6,6 +6,9 @@
  * Copyright (c) 2014,2017 The Linux Foundation. All rights reserved.
  */
 
+
+#include <linux/panic_notifier.h>
+
 #include "adreno_gpu.h"
 
 bool hang_debug = false;
@@ -31,6 +34,11 @@ module_param(skip_gpu, bool, 0400);
 int enable_lpac = -1;
 MODULE_PARM_DESC(enable_lpac, "Enable LPAC (A7xx+ only) (1=on , 0=disable, -1=auto (default))");
 module_param(enable_lpac, int, 0600);
+
+static bool gpu_floor_on_restart = true;
+MODULE_PARM_DESC(gpu_floor_on_restart, "Drop the GPU to its lowest OPP panic (default: on)");
+
+static struct msm_gpu *adreno_restart_gpu;
 
 extern const struct adreno_gpulist a2xx_gpulist;
 extern const struct adreno_gpulist a3xx_gpulist;
@@ -211,6 +219,27 @@ bool adreno_has_gpu(struct device_node *node)
 	return true;
 }
 
+static int adreno_panic_notify(struct notifier_block *nb, unsigned long action,
+			       void *data)
+{
+	struct msm_gpu *gpu = adreno_restart_gpu;
+	struct adreno_gpu *adreno_gpu;
+
+	if (!gpu_floor_on_restart || !gpu)
+		return NOTIFY_DONE;
+
+	adreno_gpu = to_adreno_gpu(gpu);
+	if (adreno_gpu->funcs->panic_handler)
+		adreno_gpu->funcs->panic_handler(adreno_gpu);
+
+	return NOTIFY_DONE;
+}
+
+static struct notifier_block adreno_panic_nb = {
+	.notifier_call = adreno_panic_notify,
+	.priority = 10,
+};
+
 static int adreno_bind(struct device *dev, struct device *master, void *data)
 {
 	static struct adreno_platform_config config = {};
@@ -251,6 +280,8 @@ static int adreno_bind(struct device *dev, struct device *master, void *data)
 	if (ret)
 		return ret;
 
+	adreno_restart_gpu = gpu;
+
 	return 0;
 }
 
@@ -266,6 +297,8 @@ static void adreno_unbind(struct device *dev, struct device *master,
 	gpu->funcs->destroy(gpu);
 
 	priv->gpu_pdev = NULL;
+
+	adreno_restart_gpu = NULL;
 }
 
 static const struct component_ops a3xx_ops = {
@@ -275,6 +308,8 @@ static const struct component_ops a3xx_ops = {
 
 static int adreno_probe(struct platform_device *pdev)
 {
+	atomic_notifier_chain_register(&panic_notifier_list, &adreno_panic_nb);
+
 	if (of_device_is_compatible(pdev->dev.of_node, "amd,imageon") ||
 	    msm_gpu_no_components())
 		return msm_gpu_probe(pdev, &a3xx_ops);
