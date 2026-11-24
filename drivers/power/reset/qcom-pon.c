@@ -10,7 +10,6 @@
 #include <linux/module.h>
 #include <linux/of.h>
 #include <linux/of_platform.h>
-#include <linux/panic_notifier.h>
 #include <linux/platform_device.h>
 #include <linux/reboot-mode.h>
 #include <linux/reboot.h>
@@ -34,11 +33,11 @@
 
 #define PON_PBS_FAULT_REASON1		0xc7
 
-static void qcom_pon_kmsg_dump(struct work_struct *work);
+static void qcom_pon_panic_force(struct work_struct *work);
 
 #define QCOM_PON_COMBO_TIMEOUT_MS 3500
 static DEFINE_SPINLOCK(qcom_pon_combo_lock);
-static DECLARE_DELAYED_WORK(qcom_pon_kmsg_dump_work, qcom_pon_kmsg_dump);
+static DECLARE_DELAYED_WORK(qcom_pon_panic_force_work, qcom_pon_panic_force);
 
 #define PON_AOP_PON_REASON1		0x7269
 #define PON_AOP_WARM_RESET_REASON1	0x726a
@@ -400,11 +399,9 @@ static struct attribute_group sysfs_group = {
 	.attrs = attrs,
 };
 
-static void qcom_pon_kmsg_dump(struct work_struct *work)
+static void qcom_pon_panic_force(struct work_struct *work)
 {
-	pr_info("%s: calling panic notifier dumping dmesg to pstore\n", __func__);
-	atomic_notifier_call_chain(&panic_notifier_list, 0, NULL);
-	kmsg_dump(KMSG_DUMP_PANIC);
+	panic("%s: calling panic dumping dmesg to pstore\n", __func__);
 }
 
 static struct qcom_pon *qcom_pon_input_handler_to_qcom_pon(struct input_handler *handler)
@@ -435,12 +432,12 @@ static void qcom_pon_combo_event(struct input_handle *handle, unsigned int type,
 	combo_pressed = (pon->key_voldown_pressed && pon->key_power_pressed);
 
 	if (combo_pressed && !pon->combo_timer_started) {
-		schedule_delayed_work(&qcom_pon_kmsg_dump_work,
+		schedule_delayed_work(&qcom_pon_panic_force_work,
 					msecs_to_jiffies(QCOM_PON_COMBO_TIMEOUT_MS));
 		pon->combo_timer_started = true;
 		dev_info(pon->dev, "timer started for key combo\n");
 	} else if (!combo_pressed && pon->combo_timer_started) {
-		cancel_delayed_work(&qcom_pon_kmsg_dump_work);
+		cancel_delayed_work(&qcom_pon_panic_force_work);
 		pon->combo_timer_started = false;
 		dev_info(pon->dev, "timer stopped for key combo\n");
 	}
