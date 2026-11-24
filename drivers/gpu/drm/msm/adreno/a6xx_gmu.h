@@ -97,6 +97,11 @@ struct a6xx_gmu {
 	/* current performance index set externally */
 	int current_perf_index;
 
+	/* perf / bw indices of the lowes OPP */
+	u32 floor_perf_index;
+	u32 floor_bw_index;
+	bool floor_indices_valid;
+
 	int nr_gpu_freqs;
 	unsigned long gpu_freqs[GMU_MAX_GX_FREQS];
 	u32 gx_arc_votes[GMU_MAX_GX_FREQS];

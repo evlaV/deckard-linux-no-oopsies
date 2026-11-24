@@ -20,6 +20,10 @@
 #include "msm_gpu_trace.h"
 #include "msm_mmu.h"
 
+static bool gmu_floor_on_suspend = true;
+MODULE_PARM_DESC(gmu_floor_on_suspend, "Drop the GPU to its lowest OPP before the GMU powers down (default: on)");
+module_param(gmu_floor_on_suspend, bool, 0644);
+
 static void a6xx_gmu_fault(struct a6xx_gmu *gmu)
 {
 	struct a6xx_gpu *a6xx_gpu = container_of(gmu, struct a6xx_gpu, gmu);
@@ -1415,6 +1419,25 @@ bool a6xx_gmu_isidle(struct a6xx_gmu *gmu)
 	return true;
 }
 
+static void a6xx_gmu_floor_before_slumber(struct a6xx_gmu *gmu)
+{
+	int ret;
+
+	if (!gmu_floor_on_suspend || gmu->legacy || !gmu->floor_indices_valid ||
+	    gmu->current_perf_index <= gmu->floor_perf_index)
+		return;
+
+	ret = a6xx_gmu_set_oob(gmu, GMU_OOB_GPU_SET);
+	if (ret)
+		return;
+
+	ret = a6xx_hfi_set_freq(gmu, gmu->floor_perf_index, gmu->floor_bw_index);
+	a6xx_gmu_clear_oob(gmu, GMU_OOB_GPU_SET);
+
+	if (ret)
+		dev_err(gmu->dev, "floor vote before slumber failed: %d\n", ret);
+}
+
 /* Gracefully try to shut down the GMU and by extension the GPU */
 static void a6xx_gmu_shutdown(struct a6xx_gmu *gmu)
 {
@@ -1437,6 +1460,8 @@ static void a6xx_gmu_shutdown(struct a6xx_gmu *gmu)
 
 	if (test_and_clear_bit(GMU_STATUS_OOB_PERF_SET, &gmu->status))
 		a6xx_gmu_clear_oob(gmu, GMU_OOB_PERFCOUNTER_SET);
+
+	a6xx_gmu_floor_before_slumber(gmu);
 
 	ret = a6xx_gmu_wait_for_idle(gmu);
 
@@ -1941,6 +1966,53 @@ static int a6xx_gmu_build_bw_table(struct device *dev, unsigned long *bandwidths
 	}
 
 	return index;
+}
+
+static void a6xx_gmu_floor_vote_init(struct a6xx_gmu *gmu)
+{
+	struct a6xx_gpu *a6xx_gpu = container_of(gmu, struct a6xx_gpu, gmu);
+	struct adreno_gpu *adreno_gpu = &a6xx_gpu->base;
+	const struct a6xx_info *info = adreno_gpu->info->a6xx;
+	struct msm_gpu *gpu = &adreno_gpu->base;
+	struct dev_pm_opp *opp;
+	unsigned long freq = 1;
+	u32 perf_index, bw_index = 0;
+
+	if (gmu->legacy || gmu->nr_gpu_freqs < 1)
+		return;
+
+	opp = dev_pm_opp_find_freq_ceil(&gpu->pdev->dev, &freq);
+	if (IS_ERR(opp))
+		return;
+
+	for (perf_index = 0; perf_index < gmu->nr_gpu_freqs - 1; perf_index++)
+		if (freq == gmu->gpu_freqs[perf_index])
+			break;
+
+	if (info->bcms && gmu->nr_gpu_bws > 1) {
+		unsigned int bw = dev_pm_opp_get_bw(opp, true, 0);
+
+		for (bw_index = 0; bw_index < gmu->nr_gpu_bws - 1; bw_index++)
+			if (bw == gmu->gpu_bw_table[bw_index])
+				break;
+
+		if (bw && adreno_is_a750_family(adreno_gpu)) {
+			u64 tmp = (u64)bw * 25;
+
+			do_div(tmp, 100);
+			tmp *= MAX_AB_VOTE;
+			do_div(tmp, gmu->gpu_bw_table[gmu->nr_gpu_bws - 1]);
+
+			bw_index |= AB_VOTE(clamp(tmp, 1, MAX_AB_VOTE));
+			bw_index |= AB_VOTE_ENABLE;
+		}
+	}
+
+	dev_pm_opp_put(opp);
+
+	gmu->floor_perf_index = perf_index;
+	gmu->floor_bw_index = bw_index;
+	gmu->floor_indices_valid = true;
 }
 
 static int a6xx_gmu_pwrlevels_probe(struct a6xx_gmu *gmu)
@@ -2461,7 +2533,12 @@ int a6xx_gmu_init(struct a6xx_gpu *a6xx_gpu, struct device_node *node)
 	gmu->gxpd = dev_pm_domain_attach_by_name(gmu->dev, "gx");
 
 	/* Get the power levels for the GMU and GPU */
-	a6xx_gmu_pwrlevels_probe(gmu);
+	ret = a6xx_gmu_pwrlevels_probe(gmu);
+	if (ret)
+		goto detach_gxpd;
+
+	/* Get the floor power levels for the GMU and GPU */
+	a6xx_gmu_floor_vote_init(gmu);
 
 	ret = a6xx_gmu_acd_probe(gmu);
 	if (ret)
