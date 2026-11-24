@@ -912,7 +912,8 @@ static void dsi_check_panel_power(struct work_struct *work)
 		ret = mipi_dsi_dcs_get_power_mode(ctx->dsi[id], &mode);
 		if (ret < 0)
 		{
-			DRM_DEV_ERROR(ctx->dev, "failed to read panel %d power status\n", id);
+			DRM_DEV_ERROR(ctx->dev, "failed to read panel %d power status ( %d )\n",
+				      id, ret);
 		}
 		else
 		{
@@ -1197,6 +1198,9 @@ static int lpm026m648c_disable(struct drm_panel *panel)
 	if (!ctx->enabled)
 		return 0;
 
+	// the panels can't be read once the DSI host is off
+	cancel_delayed_work_sync(&ctx->check_display_power);
+
 	backlight_disable(ctx->backlight);
 
 	ctx->dsi[0]->mode_flags &= ~MIPI_DSI_MODE_LPM;
@@ -1328,7 +1332,6 @@ static int lpm026m648c_enable(struct drm_panel *panel)
 	ctx->backlight->props.pulse_offset_rows = ctx->panel_vendor == VENDOR_SHARP ? GPO1_TES1_120_SHARP : GPO1_TES1_120_BOE;
 	ret = backlight_enable(ctx->backlight);
 
-	INIT_DELAYED_WORK(&ctx->check_display_power, dsi_check_panel_power);
 	schedule_delayed_work(&ctx->check_display_power, HZ);
 
 	ctx->enabled = true;
@@ -1806,6 +1809,7 @@ static int lpm026m648c_probe(struct mipi_dsi_device *dsi)
 		return PTR_ERR(ctx);
 
 	mutex_init(&ctx->gamma_lock);
+	INIT_DELAYED_WORK(&ctx->check_display_power, dsi_check_panel_power);
 
 	ctx->panel.prepare_prev_first = true;
 
@@ -1892,6 +1896,8 @@ err_panel_add:
 static void lpm026m648c_remove(struct mipi_dsi_device *dsi)
 {
 	struct lpm026m648c_ctx *ctx = mipi_dsi_get_drvdata(dsi);
+
+	cancel_delayed_work_sync(&ctx->check_display_power);
 
 	if (ctx->dsi[0])
 		mipi_dsi_detach(ctx->dsi[0]);
